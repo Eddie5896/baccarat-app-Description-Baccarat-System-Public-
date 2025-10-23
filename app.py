@@ -1,14 +1,12 @@
 # -*- coding: utf-8 -*-
-# Baccarat Master Ultimate - 完整终极版
-# 包含：四层大脑 + 六路分析 + 深度学习 + 风险控制 + 专业界面
+# Baccarat Master Ultimate - 简化依赖版
+# 完整功能，但只使用基本库
 
 import streamlit as st
 import numpy as np
-import pandas as pd
 import math
 import re
 from collections import defaultdict
-import plotly.graph_objects as go
 from datetime import datetime
 
 st.set_page_config(page_title="百家乐大师终极版", layout="centered")
@@ -71,14 +69,12 @@ if "ultimate_games" not in st.session_state:
     st.session_state.ultimate_games = []
 if "expert_roads" not in st.session_state:
     st.session_state.expert_roads = {
-        'big_road': [], 'big_eye_road': [], 'small_road': [], 
-        'cockroach_road': [], 'bead_road': [], 'three_bead_road': []
+        'big_road': [], 'bead_road': [], 'three_bead_road': []
     }
 if "ai_memory" not in st.session_state:
     st.session_state.ai_memory = {
         'pattern_accuracy': {}, 'winning_strategies': [],
-        'risk_level': 'medium', 'confidence_shift': 0.0,
-        'learning_data': []
+        'risk_level': 'medium', 'confidence_shift': 0.0
     }
 
 # ---------------- 四层大脑核心系统 ----------------
@@ -176,7 +172,7 @@ class RhythmLayer:
         }
 
 class FusionLayer:
-    """权重层 - 六路共识融合"""
+    """权重层 - 多路共识融合"""
     @staticmethod
     def fuse_road_signals(sequence):
         bp_seq = [x for x in sequence if x in ['B','P']]
@@ -512,8 +508,7 @@ def main():
     if st.button("🔄 开始新牌靴", use_container_width=True):
         st.session_state.ultimate_games.clear()
         st.session_state.expert_roads = {
-            'big_road': [], 'big_eye_road': [], 'small_road': [], 
-            'cockroach_road': [], 'bead_road': [], 'three_bead_road': []
+            'big_road': [], 'bead_road': [], 'three_bead_road': []
         }
         st.success("新牌靴开始！")
         st.rerun()
