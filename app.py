@@ -722,7 +722,9 @@ def run_light_simulation(n_shoes=5, shoe_len=60, seed=42):
                 # 更新模拟六路（仅B/P）
                 if r in ['B','P']:
                     # 复制了六路逻辑（不污染会话对象）
-                    if not roads['bead_road'] if False else None
+    if r in ['B','P']:
+    if not roads['bead_road']:
+        roads['bead_road'].append(r)
                 # 用真实结果回写“历史序列”
                 seq.append(r)
                 # 评估准确率（不含和局）
