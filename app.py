@@ -468,10 +468,19 @@ if res.get("pats"):
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.write("🛡️ 风控")
 st.write(f"- 连赢：{ss.risk['win_streak']} 局 | 连输：{ss.risk['consecutive_losses']} 局")
-if res["risk"]=="low": sug = "✅ 信号清晰，可适度加码"
-elif res["risk"]=="medium": sug = "⚠️ 一般信号，轻仓"
-elif res["risk"]=="high": sug = "🚨 高波动，谨慎或观望"
-else: sug = "⛔ 极高风险，建议暂停"
+# 安全获取风险等级，防止KeyError
+risk_level = res.get("risk", "medium")
+
+if risk_level == "low":
+    sug = "✅ 信号清晰，可适度加码"
+elif risk_level == "medium":
+    sug = "⚠️ 一般信号，轻仓"
+elif risk_level == "high":
+    sug = "🚨 高波动，谨慎或观望"
+elif risk_level == "extreme":
+    sug = "⛔ 极高风险，建议暂停"
+else:
+    sug = "⚪ 暂无风险等级（等待更多数据）"
 st.write(f"- 建议：{sug}")
 st.markdown('</div>', unsafe_allow_html=True)
 
