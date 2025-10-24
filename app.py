@@ -336,7 +336,44 @@ def display_complete_analysis():
     elif hybrid<-threshold: direction="P"
     else: direction="HOLD"
     base_conf = min(0.9, 0.55 + min(0.35, abs(hybrid)*0.9))
+# ========================== 风险管理模块（补回原版） ==========================
+class ProfessionalRiskManager:
+    @staticmethod
+    def calculate_position_size(confidence, streak_info):
+        base = 1.0
+        if confidence > 0.8: base *= 1.2
+        elif confidence > 0.7: base *= 1.0
+        elif confidence > 0.6: base *= 0.8
+        else: base *= 0.5
+        if streak_info.get('current_streak', 0) >= 3:
+            base *= 1.1
+        return min(base, 2.0)
 
+    @staticmethod
+    def get_risk_level(confidence, volatility):
+        risk_score = (1 - confidence) + volatility
+        if risk_score < 0.3: return "low", "🟢 低风险"
+        if risk_score < 0.6: return "medium", "🟡 中风险"
+        if risk_score < 0.8: return "high", "🟠 高风险"
+        return "extreme", "🔴 极高风险"
+
+    @staticmethod
+    def get_trading_suggestion(risk_level, direction):
+        suggestions = {
+            "low": {"B": "✅ 庄势明确，可适度加仓",
+                    "P": "✅ 闲势明确，可适度加仓",
+                    "HOLD": "⚪ 趋势平衡，正常操作"},
+            "medium": {"B": "⚠️ 庄势一般，建议轻仓",
+                       "P": "⚠️ 闲势一般，建议轻仓",
+                       "HOLD": "⚪ 信号不明，建议观望"},
+            "high": {"B": "🚨 高波动庄势，谨慎操作",
+                     "P": "🚨 高波动闲势，谨慎操作",
+                     "HOLD": "⛔ 高风险期，建议休息"},
+            "extreme": {"B": "⛔ 极高风险，强烈建议观望",
+                        "P": "⛔ 极高风险，强烈建议观望",
+                        "HOLD": "⛔ 市场混乱，暂停操作"}
+        }
+        return suggestions[risk_level].get(direction, "正常操作")
     # 状态信号增强
     state_signals = GameStateDetector.detect(st.session_state.expert_roads)
     if state_signals:
