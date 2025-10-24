@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 # Baccarat Master Ultimate - Precision 13 AI Hybrid Entropy 自学习终极版
-# 只加不减版（新增 ProfessionalRiskManager 修复 NameError；其余保持不变）
+# 完整增强版 - 只加不减原则
 
 import streamlit as st
 import numpy as np
 import math
+import json
 from collections import defaultdict, Counter
 from datetime import datetime
 from itertools import groupby
@@ -26,6 +27,7 @@ st.markdown("""
 .badge-neg{background:#7f1d1d;color:#fecaca;}
 .badge-neutral{background:#334155;color:#cbd5e1;}
 .state-signal{background:linear-gradient(90deg,#FFD70033,#FF634733);padding:8px 12px;border-radius:8px;margin:5px 0;border-left:4px solid #FFD700;color:#fff;font-weight:600;}
+.guide-panel{background:linear-gradient(135deg,#667eea,#764ba2);padding:20px;border-radius:10px;margin:10px 0;color:white;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -42,8 +44,23 @@ if "ai_weights" not in st.session_state:
 if "ai_learning_buffer" not in st.session_state: st.session_state.ai_learning_buffer=[]
 if "ai_last_metrics" not in st.session_state: st.session_state.ai_last_metrics={}
 if "ai_entropy" not in st.session_state: st.session_state.ai_entropy=0.0
-if "eor_decks" not in st.session_state: st.session_state.eor_decks=7  # 可调，保留会话值
+if "eor_decks" not in st.session_state: st.session_state.eor_decks=7
 if "ai_batch_n" not in st.session_state: st.session_state.ai_batch_n=5
+
+# ---- 新增状态初始化 ----
+if "prediction_stats" not in st.session_state:
+    st.session_state.prediction_stats = {
+        'total_predictions': 0,
+        'correct_predictions': 0,
+        'recent_accuracy': [],
+        'prediction_history': []
+    }
+if "learning_effectiveness" not in st.session_state:
+    st.session_state.learning_effectiveness = []
+if "performance_warnings" not in st.session_state:
+    st.session_state.performance_warnings = []
+if "last_prediction" not in st.session_state:
+    st.session_state.last_prediction = None
 
 # ========================== 六路分析（原样保留） ==========================
 class CompleteRoadAnalyzer:
@@ -250,6 +267,97 @@ class ProfessionalRiskManager:
         }
         return suggestions[risk_level].get(direction, "正常操作")
 
+# ========================== 新增功能模块 ==========================
+def record_prediction_result(prediction, actual_result, confidence):
+    """记录预测结果用于统计"""
+    if actual_result in ['B', 'P']:  # 只统计庄闲，不和局
+        stats = st.session_state.prediction_stats
+        stats['total_predictions'] += 1
+        
+        is_correct = (prediction == actual_result)
+        if is_correct:
+            stats['correct_predictions'] += 1
+            
+        stats['recent_accuracy'].append(is_correct)
+        if len(stats['recent_accuracy']) > 50:
+            stats['recent_accuracy'].pop(0)
+            
+        stats['prediction_history'].append({
+            'prediction': prediction,
+            'actual': actual_result,
+            'correct': is_correct,
+            'confidence': confidence,
+            'timestamp': datetime.now()
+        })
+
+def enhanced_learning_update(prediction, actual_result):
+    """基于真实结果的增强学习"""
+    if prediction in ['B','P'] and actual_result in ['B','P']:
+        is_correct = (prediction == actual_result)
+        # 调用现有的学习机制，但传入真实结果
+        AIHybridLearner.learn_update(correct=is_correct)
+        
+        # 新增：学习效果追踪
+        st.session_state.learning_effectiveness.append({
+            'correct': is_correct,
+            'weights_snapshot': dict(st.session_state.ai_weights),
+            'timestamp': datetime.now()
+        })
+
+def add_system_status_panel():
+    """在侧边栏添加系统状态面板"""
+    with st.sidebar.expander("📊 系统状态", expanded=False):
+        # 游戏统计
+        total_games = len(st.session_state.ultimate_games)
+        st.metric("总局数", total_games)
+        
+        # 预测统计
+        stats = st.session_state.prediction_stats
+        if stats['total_predictions'] > 0:
+            accuracy = (stats['correct_predictions'] / stats['total_predictions']) * 100
+            st.metric("预测准确率", f"{accuracy:.1f}%")
+            st.metric("总预测数", stats['total_predictions'])
+        
+        # 性能提醒
+        if total_games > 500:
+            st.warning("⚠️ 数据量较大，建议导出数据")
+        elif total_games > 200:
+            st.info("💾 数据量适中，运行流畅")
+        else:
+            st.success("✅ 系统运行正常")
+
+def show_quick_start_guide():
+    """显示快速开始指南"""
+    if len(st.session_state.ultimate_games) == 0:
+        st.markdown("""
+        <div class="guide-panel">
+        <h3>🎯 快速开始指南</h3>
+        <p>1. 选择「牌点输入」记录详细牌局，或使用「快速看路」快速开始</p>
+        <p>2. 记录3局后激活AI智能分析系统</p>
+        <p>3. 关注风险建议，科学管理仓位</p>
+        <p>4. 系统会持续学习优化预测准确性</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+def enhanced_export_data():
+    """增强数据导出功能"""
+    data = {
+        'games': st.session_state.ultimate_games,
+        'roads': st.session_state.expert_roads,
+        'ai_weights': st.session_state.ai_weights,
+        'prediction_stats': st.session_state.prediction_stats,
+        'export_time': datetime.now().isoformat()
+    }
+    
+    # 提供下载
+    json_str = json.dumps(data, ensure_ascii=False, indent=2)
+    st.download_button(
+        label="📥 下载完整数据",
+        data=json_str,
+        file_name=f"baccarat_data_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+        mime="application/json"
+    )
+
 # ========================== 看路推荐（原样保留） ==========================
 def road_recommendation(roads):
     lines=[]; final=""
@@ -324,6 +432,10 @@ def handle_batch_input(batch_input):
 
 def display_complete_interface():
     st.markdown("## 🎮 双模式输入系统")
+    
+    # 新增：快速开始指南
+    show_quick_start_guide()
+    
     c1,c2=st.columns(2)
     with c1:
         if st.button("🃏 牌点输入", use_container_width=True, type="primary"):
@@ -387,7 +499,7 @@ def display_complete_analysis():
             if '突破' in sig or '共振' in sig:
                 base_conf = min(0.95, base_conf*1.2)
                 if '庄' in sig and direction!='B': direction='B'
-                if '闲' in sig and direction!='P': direction='P'
+                if '闲'在 sig and direction!='P': direction='P'
             if '衰竭' in sig and direction!='HOLD':
                 direction='HOLD'; base_conf=max(base_conf,0.6)
 
@@ -465,9 +577,12 @@ def display_complete_analysis():
     </div>
     """, unsafe_allow_html=True)
 
-    # 自学习（每5局一次，示例：当方向不是 HOLD 时才计入学习）
-    if direction!='HOLD':
-        AIHybridLearner.learn_update(correct=True)  # 示例：此处用 True 演示更新流程
+    # 新增：记录预测结果和真实学习
+    if len(seq) > 0 and direction != 'HOLD':
+        last_result = seq[-1]
+        record_prediction_result(direction, last_result, base_conf)
+        enhanced_learning_update(direction, last_result)
+        st.session_state.last_prediction = direction
 
 # ========================== 六路展示 / 统计 / 历史（原样保留） ==========================
 def display_complete_roads():
@@ -524,6 +639,20 @@ def display_professional_stats():
                 changes=sum(1 for i in range(1,len(bead)) if bead[i]!=bead[i-1])
                 vol=changes/len(bead)*100
                 st.metric("波动率", f"{vol:.1f}%")
+    
+    # 新增：预测性能统计面板
+    stats = st.session_state.prediction_stats
+    if stats['total_predictions'] > 0:
+        st.markdown("#### 🎯 AI预测性能")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            accuracy = (stats['correct_predictions'] / stats['total_predictions']) * 100
+            st.metric("总体准确率", f"{accuracy:.1f}%")
+        with col2:
+            recent_acc = np.mean(stats['recent_accuracy'][-20:]) * 100 if stats['recent_accuracy'] else 0
+            st.metric("近期准确率", f"{recent_acc:.1f}%")
+        with col3:
+            st.metric("总预测数", stats['total_predictions'])
 
 def display_complete_history():
     if not st.session_state.ultimate_games:
@@ -549,6 +678,9 @@ def main():
     with st.sidebar:
         st.markdown("## ⚙️ 控制台")
         st.caption("随时调整 EOR 副数；AI 权重后台自动学习，界面只显示不修改。")
+        
+        # 新增：系统状态面板
+        add_system_status_panel()
 
     tab1, tab2, tab3, tab4 = st.tabs(["🎯 智能分析", "🛣️ 六路分析", "📊 专业统计", "📝 历史记录"])
     with tab1:
@@ -572,7 +704,7 @@ def main():
             st.success("新牌靴开始！"); st.rerun()
     with c2:
         if st.button("📋 导出数据", use_container_width=True):
-            st.info("数据导出功能准备中...")
+            enhanced_export_data()
 
 if __name__ == "__main__":
     main()
