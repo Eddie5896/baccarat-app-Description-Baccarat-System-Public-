@@ -499,7 +499,7 @@ def display_complete_analysis():
             if '突破' in sig or '共振' in sig:
                 base_conf = min(0.95, base_conf*1.2)
                 if '庄' in sig and direction!='B': direction='B'
-                if '闲'在 sig and direction!='P': direction='P'
+                if '闲' in sig and direction!='P': direction='P'  # 修复语法错误
             if '衰竭' in sig and direction!='HOLD':
                 direction='HOLD'; base_conf=max(base_conf,0.6)
 
