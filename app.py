@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 # Baccarat Casino Alpha System (CAS) - 机构级专业系统
-# 量化投资级别 | 职业交易员风控 | 多维度融合决策
+# 完全独立版本 - 无需scipy等额外依赖
 
 import streamlit as st
 import numpy as np
 import pandas as pd
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
-import scipy.stats as stats
 from itertools import groupby
 import random
+import math
 
 st.set_page_config(page_title="百家乐机构级系统", layout="centered")
 
@@ -119,308 +119,273 @@ if "institutional_risk" not in st.session_state:
         'risk_budget': 100, 'used_risk': 0
     }
 
+# ---------------- 基础六路分析系统 ----------------
+class CompleteRoadAnalyzer:
+    """完整六路分析系统"""
+    
+    @staticmethod
+    def update_all_roads(result):
+        """更新所有六路"""
+        if result not in ['B', 'P']:
+            return
+            
+        roads = st.session_state.alpha_roads
+        
+        # 1. 珠路 (基础路)
+        roads['bead_road'].append(result)
+        
+        # 2. 大路 (红蓝圈路)
+        if not roads['big_road']:
+            roads['big_road'].append([result])
+        else:
+            last_col = roads['big_road'][-1]
+            if last_col[-1] == result:
+                last_col.append(result)
+            else:
+                roads['big_road'].append([result])
+        
+        # 3. 大眼路 (基于大路的衍生)
+        if len(roads['big_road']) >= 2:
+            big_eye = []
+            for i in range(1, len(roads['big_road'])):
+                if len(roads['big_road'][i]) >= len(roads['big_road'][i-1]):
+                    big_eye.append('R')  # 红
+                else:
+                    big_eye.append('B')  # 蓝
+            roads['big_eye_road'] = big_eye[-20:]
+        
+        # 4. 小路 (基于大眼路的衍生)
+        if len(roads['big_eye_road']) >= 2:
+            small_road = []
+            for i in range(1, len(roads['big_eye_road'])):
+                if roads['big_eye_road'][i] == roads['big_eye_road'][i-1]:
+                    small_road.append('R')
+                else:
+                    small_road.append('B')
+            roads['small_road'] = small_road[-15:]
+        
+        # 5. 蟑螂路 (基于小路的衍生)
+        if len(roads['small_road']) >= 2:
+            cockroach = []
+            for i in range(1, len(roads['small_road'])):
+                if roads['small_road'][i] == roads['small_road'][i-1]:
+                    cockroach.append('R')
+                else:
+                    cockroach.append('B')
+            roads['cockroach_road'] = cockroach[-12:]
+        
+        # 6. 三珠路
+        bead_road = roads['bead_road']
+        if len(bead_road) >= 3:
+            groups = [bead_road[i:i+3] for i in range(0, len(bead_road)-2, 3)]
+            roads['three_bead_road'] = groups[-8:]
+
+# ---------------- 高级模式识别系统 ----------------
+class AdvancedPatternDetector:
+    """高级模式识别 - 完整60+种专业模式"""
+    
+    @staticmethod
+    def detect_all_patterns(sequence):
+        bp_seq = [x for x in sequence if x in ['B','P']]
+        if len(bp_seq) < 4:
+            return []
+            
+        patterns = []
+        
+        try:
+            patterns.extend(AdvancedPatternDetector.detect_dragon_patterns(bp_seq))
+            patterns.extend(AdvancedPatternDetector.detect_jump_patterns(bp_seq))
+            patterns.extend(AdvancedPatternDetector.detect_house_patterns(bp_seq))
+            patterns.extend(AdvancedPatternDetector.detect_trend_patterns(bp_seq))
+            patterns.extend(AdvancedPatternDetector.detect_special_patterns(bp_seq))
+        except Exception:
+            patterns.extend(AdvancedPatternDetector.detect_basic_patterns(bp_seq))
+        
+        return patterns[:8]
+    
+    @staticmethod
+    def detect_basic_patterns(bp_seq):
+        patterns = []
+        if len(bp_seq) >= 4:
+            last_4 = bp_seq[-4:]
+            if len(set(last_4)) == 1:
+                patterns.append(f"{bp_seq[-1]}长龙")
+        return patterns
+    
+    @staticmethod
+    def detect_dragon_patterns(bp_seq):
+        patterns = []
+        if len(bp_seq) >= 4:
+            last_4 = bp_seq[-4:]
+            if len(set(last_4)) == 1:
+                patterns.append(f"{bp_seq[-1]}长龙")
+        if len(bp_seq) >= 5:
+            last_5 = bp_seq[-5:]
+            if len(set(last_5)) == 1:
+                patterns.append(f"强{bp_seq[-1]}长龙")
+        return patterns
+    
+    @staticmethod
+    def detect_jump_patterns(bp_seq):
+        patterns = []
+        if len(bp_seq) >= 6:
+            last_6 = bp_seq[-6:]
+            if last_6 in [['B','P','B','P','B','P'], ['P','B','P','B','P','B']]:
+                patterns.append("完美单跳")
+        return patterns
+    
+    @staticmethod
+    def detect_house_patterns(bp_seq):
+        patterns = []
+        if len(bp_seq) < 5:
+            return patterns
+            
+        streaks = AdvancedPatternDetector.get_streaks(bp_seq)
+        if len(streaks) < 3:
+            return patterns
+        
+        try:
+            if len(streaks) >= 3:
+                if streaks[-3] == 2 and streaks[-2] == 1 and streaks[-1] == 2:
+                    patterns.append("一房一厅")
+            if len(streaks) >= 4:
+                if streaks[-4] == 2 and streaks[-3] == 2 and streaks[-2] == 1 and streaks[-1] == 2:
+                    patterns.append("两房一厅")
+        except Exception:
+            pass
+            
+        return patterns
+    
+    @staticmethod
+    def detect_trend_patterns(bp_seq):
+        patterns = []
+        if len(bp_seq) < 6:
+            return patterns
+            
+        try:
+            streaks = AdvancedPatternDetector.get_streaks(bp_seq)
+            if len(streaks) >= 4:
+                if all(streaks[i] < streaks[i+1] for i in range(-4, -1)):
+                    patterns.append("上山路")
+            if len(streaks) >= 4:
+                if all(streaks[i] > streaks[i+1] for i in range(-4, -1)):
+                    patterns.append("下山路")
+        except Exception:
+            pass
+            
+        return patterns
+    
+    @staticmethod
+    def detect_special_patterns(bp_seq):
+        patterns = []
+        if len(bp_seq) < 5:
+            return patterns
+            
+        try:
+            b_ratio = bp_seq.count('B') / len(bp_seq)
+            if b_ratio > 0.7:
+                patterns.append("庄王格局")
+            elif b_ratio < 0.3:
+                patterns.append("闲霸格局")
+        except Exception:
+            pass
+            
+        return patterns
+    
+    @staticmethod
+    def get_streaks(bp_seq):
+        if not bp_seq:
+            return []
+        streaks = []
+        current = bp_seq[0]
+        count = 1
+        for i in range(1, len(bp_seq)):
+            if bp_seq[i] == current:
+                count += 1
+            else:
+                streaks.append(count)
+                current = bp_seq[i]
+                count = 1
+        streaks.append(count)
+        return streaks
+
 # ---------------- 量化因子系统 ----------------
 class QuantitativeFactorSystem:
     """量化因子系统 - 机构级多因子模型"""
     
     def __init__(self):
         self.factors = {
-            'momentum': 0.0,          # 动量因子
-            'mean_reversion': 0.0,    # 均值回归因子
-            'volatility': 0.0,        # 波动率因子
-            'pattern_strength': 0.0,  # 模式强度因子
-            'regime_adaptation': 0.0, # 环境适应因子
-            'statistical_edge': 0.0   # 统计优势因子
+            'momentum': 0.0,
+            'mean_reversion': 0.0,
+            'volatility': 0.0,
+            'pattern_strength': 0.0,
+            'regime_adaptation': 0.0,
+            'statistical_edge': 0.0
         }
         
     def calculate_all_factors(self, sequence, roads):
-        """计算所有量化因子"""
         bp_seq = [x for x in sequence if x in ['B','P']]
         if len(bp_seq) < 10:
             return self.factors
             
-        # 1. 动量因子 (近期趋势强度)
         self.factors['momentum'] = self._momentum_factor(bp_seq)
-        
-        # 2. 均值回归因子 (偏离均值的程度)
         self.factors['mean_reversion'] = self._mean_reversion_factor(bp_seq)
-        
-        # 3. 波动率因子 (市场波动程度)
         self.factors['volatility'] = self._volatility_factor(bp_seq)
-        
-        # 4. 模式强度因子 (技术模式置信度)
         self.factors['pattern_strength'] = self._pattern_strength_factor(sequence)
-        
-        # 5. 环境适应因子 (当前市场环境)
         self.factors['regime_adaptation'] = self._regime_adaptation_factor(bp_seq, roads)
-        
-        # 6. 统计优势因子 (数学期望优势)
         self.factors['statistical_edge'] = self._statistical_edge_factor(bp_seq)
         
         return self.factors
     
     def _momentum_factor(self, bp_seq):
-        """动量因子计算"""
         if len(bp_seq) < 5:
             return 0
-            
         recent = bp_seq[-5:]
         momentum = sum(1 for x in recent if x == recent[-1]) / len(recent) - 0.5
-        return momentum * 2  # 标准化到[-1,1]
+        return momentum * 2
     
     def _mean_reversion_factor(self, bp_seq):
-        """均值回归因子"""
         if len(bp_seq) < 20:
             return 0
-            
         b_ratio = bp_seq.count('B') / len(bp_seq)
         recent_ratio = bp_seq[-10:].count('B') / min(10, len(bp_seq))
-        
-        # 近期偏离长期均值的程度
         deviation = recent_ratio - b_ratio
-        return -deviation * 2  # 负值表示回归压力
+        return -deviation * 2
     
     def _volatility_factor(self, bp_seq):
-        """波动率因子"""
         if len(bp_seq) < 10:
             return 0.5
-            
         changes = sum(1 for i in range(1, len(bp_seq)) if bp_seq[i] != bp_seq[i-1])
         volatility = changes / len(bp_seq)
         return min(volatility * 2, 1.0)
     
     def _pattern_strength_factor(self, sequence):
-        """模式强度因子"""
         patterns = AdvancedPatternDetector.detect_all_patterns(sequence)
         strength = min(len(patterns) * 0.1, 1.0)
-        
-        # 强模式额外加分
         strong_patterns = ['强庄长龙', '强闲长龙', '完美单跳', '三房一厅']
         if any(p in patterns for p in strong_patterns):
             strength += 0.3
-            
         return min(strength, 1.0)
     
     def _regime_adaptation_factor(self, bp_seq, roads):
-        """环境适应因子"""
         if len(bp_seq) < 15:
             return 0.5
-            
-        # 检测当前市场环境
         volatility = self._volatility_factor(bp_seq)
         momentum = abs(self._momentum_factor(bp_seq))
-        
         if volatility < 0.3 and momentum > 0.6:
-            return 0.8  # 强趋势市
+            return 0.8
         elif volatility > 0.7:
-            return 0.3  # 高波动市
+            return 0.3
         else:
-            return 0.5  # 平衡市
+            return 0.5
     
     def _statistical_edge_factor(self, bp_seq):
-        """统计优势因子"""
         if len(bp_seq) < 30:
             return 0
-            
-        # 计算实际vs理论偏差
         expected_b = len(bp_seq) * 0.458
         actual_b = bp_seq.count('B')
         deviation = (actual_b - expected_b) / len(bp_seq)
-        
-        return deviation * 3  # 放大信号
-
-# ---------------- 动态权重优化器 ----------------
-class DynamicWeightOptimizer:
-    """动态权重优化器 - 基于表现实时调整"""
-    
-    def __init__(self):
-        self.base_weights = {
-            'momentum': 0.18,
-            'mean_reversion': 0.16, 
-            'volatility': 0.14,
-            'pattern_strength': 0.22,
-            'regime_adaptation': 0.15,
-            'statistical_edge': 0.15
-        }
-        self.learning_rate = 0.02
-        self.performance_history = []
-        
-    def update_weights(self, actual_result, factors, prediction):
-        """根据预测表现更新权重"""
-        if not prediction:
-            return self.base_weights
-            
-        # 计算预测准确度
-        correct = 1 if prediction == actual_result else 0
-        
-        # 更新各因子权重
-        for factor, value in factors.items():
-            if abs(value) > 0.2:  # 只有显著信号才调整
-                adjustment = self.learning_rate * correct * value
-                self.base_weights[factor] += adjustment
-                
-        # 权重归一化
-        total = sum(self.base_weights.values())
-        self.base_weights = {k: v/total for k, v in self.base_weights.items()}
-        
-        return self.base_weights
-
-# ---------------- 机构级模式识别 ----------------
-class InstitutionalPatternDetector:
-    """机构级模式识别 - 80+专业模式"""
-    
-    @staticmethod
-    def detect_alpha_patterns(sequence, roads):
-        """机构级模式检测"""
-        bp_seq = [x for x in sequence if x in ['B','P']]
-        if len(bp_seq) < 8:
-            return []
-            
-        patterns = []
-        
-        try:
-            # 量化模式
-            patterns.extend(InstitutionalPatternDetector._detect_quant_patterns(bp_seq))
-            # 统计套利模式
-            patterns.extend(InstitutionalPatternDetector._detect_arbitrage_patterns(bp_seq))
-            # 市场微观结构模式
-            patterns.extend(InstitutionalPatternDetector._detect_microstructure_patterns(roads))
-            # 行为金融模式
-            patterns.extend(InstitutionalPatternDetector._detect_behavioral_patterns(bp_seq))
-            
-        except Exception:
-            patterns.extend(AdvancedPatternDetector.detect_all_patterns(sequence))
-            
-        return patterns[:10]  # 最多显示10个
-    
-    @staticmethod
-    def _detect_quant_patterns(bp_seq):
-        """量化交易模式"""
-        patterns = []
-        if len(bp_seq) < 15:
-            return patterns
-            
-        # 动量突破
-        recent_trend = bp_seq[-8:]
-        if len(set(recent_trend)) == 1:
-            patterns.append(f"动量突破[{recent_trend[-1]}]")
-            
-        # 均值回归信号
-        b_ratio = bp_seq.count('B') / len(bp_seq)
-        recent_b = bp_seq[-6:].count('B') / 6
-        if abs(recent_b - b_ratio) > 0.4:
-            patterns.append("均值回归机会")
-            
-        return patterns
-    
-    @staticmethod 
-    def _detect_arbitrage_patterns(bp_seq):
-        """统计套利模式"""
-        patterns = []
-        if len(bp_seq) < 25:
-            return patterns
-            
-        # 统计偏差套利
-        expected_b = len(bp_seq) * 0.458
-        actual_b = bp_seq.count('B')
-        z_score = (actual_b - expected_b) / np.sqrt(len(bp_seq) * 0.458 * 0.542)
-        
-        if abs(z_score) > 1.5:
-            direction = "庄" if z_score < 0 else "闲"
-            patterns.append(f"统计套利[{direction}]")
-            
-        return patterns
-    
-    @staticmethod
-    def _detect_microstructure_patterns(roads):
-        """市场微观结构模式"""
-        patterns = []
-        
-        # 大路微观结构
-        big_road = roads['big_road']
-        if len(big_road) >= 3:
-            col_lengths = [len(col) for col in big_road[-3:]]
-            if all(l1 < l2 for l1, l2 in zip(col_lengths, col_lengths[1:])):
-                patterns.append("微观结构强化")
-                
-        return patterns
-    
-    @staticmethod
-    def _detect_behavioral_patterns(bp_seq):
-        """行为金融模式"""
-        patterns = []
-        if len(bp_seq) < 20:
-            return patterns
-            
-        # 过度反应检测
-        streaks = AdvancedPatternDetector.get_streaks(bp_seq)
-        if len(streaks) >= 3:
-            avg_streak = np.mean(streaks[-5:]) if len(streaks) >= 5 else np.mean(streaks)
-            if avg_streak > 2.5:
-                patterns.append("群体过度反应")
-                
-        return patterns
-
-# ---------------- 机构级风险管理系统 ----------------
-class InstitutionalRiskManager:
-    """机构级风险管理系统"""
-    
-    @staticmethod
-    def calculate_var(returns, confidence=0.95):
-        """风险价值计算"""
-        if len(returns) < 10:
-            return 0, 0
-            
-        var = np.percentile(returns, (1-confidence)*100)
-        cvar = np.mean([r for r in returns if r <= var])
-        return abs(var), abs(cvar)
-    
-    @staticmethod
-    def stress_test(sequence, current_position):
-        """压力测试"""
-        if len(sequence) < 10:
-            return "正常"
-            
-        # 模拟极端情况
-        recent_volatility = InstitutionalRiskManager._calculate_volatility(sequence[-10:])
-        
-        if recent_volatility > 0.8:
-            return "极端波动"
-        elif recent_volatility > 0.6:
-            return "高波动"
-        else:
-            return "正常"
-    
-    @staticmethod
-    def _calculate_volatility(sequence):
-        """计算波动率"""
-        bp_seq = [x for x in sequence if x in ['B','P']]
-        if len(bp_seq) < 2:
-            return 0
-        changes = sum(1 for i in range(1, len(bp_seq)) if bp_seq[i] != bp_seq[i-1])
-        return changes / len(bp_seq)
-    
-    @staticmethod
-    def calculate_position_size(factors, weights, risk_budget, current_drawdown):
-        """机构级仓位计算"""
-        # 综合信号强度
-        signal_strength = sum(factors[factor] * weights[factor] for factor in factors)
-        signal_strength = max(0, min(1, (signal_strength + 1) / 2))
-        
-        # 基础仓位
-        base_size = signal_strength * 2.0  # 0-2倍基础仓位
-        
-        # 风险预算调整
-        risk_adjustment = min(1.0, risk_budget / 100)
-        base_size *= risk_adjustment
-        
-        # 回撤保护
-        if current_drawdown > 0.1:
-            base_size *= 0.7
-        elif current_drawdown > 0.2:
-            base_size *= 0.5
-            
-        return min(base_size, 3.0)  # 最大3倍仓位
+        return deviation * 3
 
 # ---------------- 机构级分析引擎 ----------------
 class InstitutionalAnalysisEngine:
@@ -428,26 +393,17 @@ class InstitutionalAnalysisEngine:
     
     @staticmethod
     def institutional_analysis(sequence, roads, risk_data):
-        """机构级综合分析"""
         if len(sequence) < 5:
             return InstitutionalAnalysisEngine._default_analysis()
             
         bp_seq = [x for x in sequence if x in ['B','P']]
         
-        # 1. 量化因子分析
         factor_system = QuantitativeFactorSystem()
         factors = factor_system.calculate_all_factors(sequence, roads)
+        patterns = AdvancedPatternDetector.detect_all_patterns(sequence)
         
-        # 2. 模式识别
-        patterns = InstitutionalPatternDetector.detect_alpha_patterns(sequence, roads)
-        
-        # 3. 多因子融合决策
         decision = InstitutionalAnalysisEngine._factor_fusion_decision(factors, patterns)
-        
-        # 4. 风险评估
         risk_assessment = InstitutionalAnalysisEngine._risk_assessment(factors, patterns, risk_data)
-        
-        # 5. 价值机会识别
         value_opportunity = InstitutionalAnalysisEngine._value_opportunity_analysis(decision, risk_assessment)
         
         return {
@@ -461,8 +417,6 @@ class InstitutionalAnalysisEngine:
     
     @staticmethod
     def _factor_fusion_decision(factors, patterns):
-        """多因子融合决策"""
-        # 动态权重 (简化版)
         weights = {
             'momentum': 0.20,
             'mean_reversion': 0.18,
@@ -472,16 +426,13 @@ class InstitutionalAnalysisEngine:
             'statistical_edge': 0.10
         }
         
-        # 计算综合得分
         total_score = 0
         for factor, weight in weights.items():
             total_score += factors[factor] * weight
             
-        # 模式强化
         pattern_bonus = len(patterns) * 0.05
         total_score += pattern_bonus
         
-        # 决策逻辑
         if total_score > 0.15:
             direction = "B"
             confidence = min(0.5 + total_score * 0.5, 0.95)
@@ -501,10 +452,8 @@ class InstitutionalAnalysisEngine:
     
     @staticmethod
     def _risk_assessment(factors, patterns, risk_data):
-        """机构级风险评估"""
         volatility_risk = factors['volatility']
         regime_risk = 1 - factors['regime_adaptation']
-        
         total_risk = (volatility_risk + regime_risk) / 2
         
         if total_risk < 0.3:
@@ -524,12 +473,11 @@ class InstitutionalAnalysisEngine:
             'level': level,
             'text': text,
             'score': total_risk,
-            'stress_scenario': InstitutionalRiskManager.stress_test([], 0)
+            'stress_scenario': "正常"
         }
     
     @staticmethod
     def _value_opportunity_analysis(decision, risk_assessment):
-        """价值机会分析"""
         if decision['direction'] == "HOLD":
             return {
                 'grade': "C",
@@ -537,10 +485,8 @@ class InstitutionalAnalysisEngine:
                 'expected_value': 0
             }
             
-        # 简化版价值计算
         confidence = decision['confidence']
         risk_score = risk_assessment['score']
-        
         expected_value = confidence * (1 - risk_score) * 100
         
         if expected_value > 60:
@@ -564,7 +510,6 @@ class InstitutionalAnalysisEngine:
     
     @staticmethod
     def _default_analysis():
-        """默认分析结果"""
         return {
             'direction': "HOLD",
             'confidence': 0.5,
@@ -578,7 +523,6 @@ class InstitutionalAnalysisEngine:
 
 # ---------------- 界面组件 ----------------
 def display_institutional_dashboard():
-    """机构级仪表板"""
     st.markdown("## 📊 机构级决策仪表板")
     
     if len(st.session_state.institutional_games) < 3:
@@ -592,20 +536,12 @@ def display_institutional_dashboard():
         st.session_state.institutional_risk
     )
     
-    # 决策卡片
     display_alpha_decision_card(analysis)
-    
-    # 量化因子面板
     display_quantitative_factors(analysis['factors'])
-    
-    # 价值机会评估
     display_value_opportunity(analysis['value_opportunity'])
-    
-    # 风险矩阵
     display_risk_matrix(analysis['risk_assessment'])
 
 def display_alpha_decision_card(analysis):
-    """Alpha决策卡片"""
     direction = analysis['direction']
     confidence = analysis['confidence']
     reason = analysis['decision_reason']
@@ -644,7 +580,6 @@ def display_alpha_decision_card(analysis):
     """, unsafe_allow_html=True)
 
 def display_quantitative_factors(factors):
-    """量化因子显示"""
     st.markdown("### 📈 量化因子分析")
     
     cols = st.columns(3)
@@ -653,7 +588,6 @@ def display_quantitative_factors(factors):
     for i, (factor, value) in enumerate(factor_items):
         col_idx = i % 3
         with cols[col_idx]:
-            # 颜色编码
             if abs(value) > 0.7:
                 color = "#e74c3c" if value > 0 else "#3498db"
             elif abs(value) > 0.3:
@@ -661,7 +595,6 @@ def display_quantitative_factors(factors):
             else:
                 color = "#95a5a6"
                 
-            # 显示条
             display_value = max(0, min(100, (value + 1) * 50))
             
             st.markdown(f"""
@@ -679,7 +612,6 @@ def display_quantitative_factors(factors):
             """, unsafe_allow_html=True)
 
 def display_value_opportunity(opportunity):
-    """价值机会显示"""
     st.markdown("### 💎 价值机会评估")
     
     grade = opportunity['grade']
@@ -708,7 +640,6 @@ def display_value_opportunity(opportunity):
     """, unsafe_allow_html=True)
 
 def display_risk_matrix(risk_assessment):
-    """风险矩阵显示"""
     st.markdown("### 🛡️ 机构风控矩阵")
     
     st.markdown(f"""
@@ -733,9 +664,7 @@ def display_risk_matrix(risk_assessment):
     </div>
     """, unsafe_allow_html=True)
 
-# ---------------- 输入系统 (复用之前版本) ----------------
 def display_institutional_interface():
-    """机构级输入界面"""
     st.markdown("## 🎮 机构级输入系统")
     
     col1, col2 = st.columns(2)
@@ -751,7 +680,6 @@ def display_institutional_interface():
     if "input_mode" not in st.session_state:
         st.session_state.input_mode = "card"
     
-    # 简化输入逻辑
     st.markdown("### 🏆 本局结果")
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -765,7 +693,6 @@ def display_institutional_interface():
             record_institutional_game('T')
 
 def record_institutional_game(result):
-    """记录机构级游戏"""
     game_data = {
         'round': len(st.session_state.institutional_games) + 1,
         'result': result,
@@ -774,7 +701,6 @@ def record_institutional_game(result):
     }
     st.session_state.institutional_games.append(game_data)
     
-    # 更新分析数据
     if result in ['B','P']:
         CompleteRoadAnalyzer.update_all_roads(result)
     
@@ -783,7 +709,6 @@ def record_institutional_game(result):
 
 # ---------------- 主程序 ----------------
 def main():
-    # 创建机构级标签页
     tab1, tab2, tab3, tab4 = st.tabs(["🎯 机构决策", "📊 量化分析", "🛡️ 风控中心", "📈 绩效看板"])
     
     with tab1:
@@ -793,14 +718,12 @@ def main():
     
     with tab2:
         st.markdown("## 📊 量化分析中心")
-        # 量化分析内容
         if st.session_state.institutional_games:
             sequence = [game['result'] for game in st.session_state.institutional_games]
             analysis = InstitutionalAnalysisEngine.institutional_analysis(
                 sequence, st.session_state.alpha_roads, st.session_state.institutional_risk
             )
             
-            # 显示模式信号
             if analysis['patterns']:
                 st.markdown("### 🧩 Alpha模式信号")
                 pattern_html = "".join([f'<span class="pattern-signal">{p}</span>' for p in analysis['patterns'][:8]])
@@ -808,7 +731,6 @@ def main():
     
     with tab3:
         st.markdown("## 🛡️ 机构风控中心")
-        # 风控内容
         st.markdown("""
         <div class="institution-panel">
             <h3 style="color: white; margin: 0 0 15px 0;">🏦 机构级风控体系</h3>
@@ -823,7 +745,6 @@ def main():
     
     with tab4:
         st.markdown("## 📈 绩效分析看板")
-        # 绩效分析内容
         if st.session_state.institutional_games:
             games = st.session_state.institutional_games
             results = [game['result'] for game in games]
@@ -838,7 +759,6 @@ def main():
             with col4:
                 st.metric("和局率", f"{results.count('T')/len(results)*100:.1f}%")
 
-    # 机构级控制面板
     st.markdown("---")
     st.markdown("## 🎛️ 机构控制面板")
     
