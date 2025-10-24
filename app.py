@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Baccarat Master Ultimate - Precision 13 AI Hybrid Entropy 自学习终极版
-# 只加不减版
+# 只加不减版（新增 ProfessionalRiskManager 修复 NameError；其余保持不变）
 
 import streamlit as st
 import numpy as np
@@ -42,8 +42,9 @@ if "ai_weights" not in st.session_state:
 if "ai_learning_buffer" not in st.session_state: st.session_state.ai_learning_buffer=[]
 if "ai_last_metrics" not in st.session_state: st.session_state.ai_last_metrics={}
 if "ai_entropy" not in st.session_state: st.session_state.ai_entropy=0.0
-if "eor_decks" not in st.session_state: st.session_state.eor_decks=7
+if "eor_decks" not in st.session_state: st.session_state.eor_decks=7  # 可调，保留会话值
 if "ai_batch_n" not in st.session_state: st.session_state.ai_batch_n=5
+
 # ========================== 六路分析（原样保留） ==========================
 class CompleteRoadAnalyzer:
     @staticmethod
@@ -91,7 +92,7 @@ class AdvancedPatternDetector:
         p=[]; s=AdvancedPatternDetector.get_streaks(bp)
         if len(set(bp[-4:]))==1:p.append(f"{bp[-1]}长龙")
         if len(bp)>=6 and len(set(bp[-6:]))==1:p.append(f"超强{bp[-1]}长龙")
-        if len(bp)>=6 and bp[-6:] in [['B','P']*3,['P','B']*3]:p.append("完美单跳")
+        if len(bp)>=6 and bp[-6:] in [['B','P','B','P','B','P'],['P','B','P','B','P','B']]:p.append("完美单跳")
         if len(s)>=3 and s[-3]==2 and s[-2]==1 and s[-1]==2:p.append("一房一厅")
         if len(s)>=4 and all(s[i]<s[i+1] for i in range(-4,-1)):p.append("上山路")
         return p[:8]
@@ -106,11 +107,16 @@ class HybridMathCore:
         mean=np.mean(arr); std=np.std(arr)+1e-6
         z=mean/std
         diff=np.diff(arr)
+        # CUSUM 简化正向累计
         cusum=np.maximum.accumulate(np.cumsum(diff))[-1]/len(bp)
+        # 朴素贝叶斯先验修正（拉普拉斯+1）
         bayes=(bp.count('B')+1)/(len(bp)+2)-0.5
+        # 动量=最近窗口的方向一致性
         momentum=np.mean(arr[-4:])
+        # 熵：不确定度
         pB=bp.count('B')/len(bp); pP=1-pB
         entropy=-(pB*np.log2(pB+1e-9)+pP*np.log2(pP+1e-9))
+        # EOR 以可调副数归一化（演示型）
         decks=st.session_state.eor_decks
         eor=((pB-pP)*decks)/8
         return {'z':z,'cusum':cusum,'bayes':bayes,'momentum':momentum,'entropy':entropy,'eor':eor}
@@ -138,6 +144,7 @@ class AIHybridLearner:
                 m['momentum']*w['momentum']+m['eor']*w['eor'])
         st.session_state.ai_entropy=m['entropy']
         return hybrid,m
+
 # ========================== 状态信号（保留并增强） ==========================
 class GameStateDetector:
     @staticmethod
@@ -204,6 +211,44 @@ class GameStateDetector:
         if ex: out.append(f"连势衰竭-{ex}")
         return out
 
+# ========================== 新增：风险管理模块（修复 NameError；只加不减） ==========================
+class ProfessionalRiskManager:
+    @staticmethod
+    def calculate_position_size(confidence, streak_info):
+        base = 1.0
+        if confidence > 0.8: base *= 1.2
+        elif confidence > 0.7: base *= 1.0
+        elif confidence > 0.6: base *= 0.8
+        else: base *= 0.5
+        if streak_info.get('current_streak', 0) >= 3:
+            base *= 1.1
+        return min(base, 2.0)
+
+    @staticmethod
+    def get_risk_level(confidence, volatility):
+        risk_score = (1 - confidence) + volatility
+        if risk_score < 0.3: return "low", "🟢 低风险"
+        if risk_score < 0.6: return "medium", "🟡 中风险"
+        if risk_score < 0.8: return "high", "🟠 高风险"
+        return "extreme", "🔴 极高风险"
+
+    @staticmethod
+    def get_trading_suggestion(risk_level, direction):
+        suggestions = {
+            "low": {"B": "✅ 庄势明确，可适度加仓",
+                    "P": "✅ 闲势明确，可适度加仓",
+                    "HOLD": "⚪ 趋势平衡，正常操作"},
+            "medium": {"B": "⚠️ 庄势一般，建议轻仓",
+                       "P": "⚠️ 闲势一般，建议轻仓",
+                       "HOLD": "⚪ 信号不明，建议观望"},
+            "high": {"B": "🚨 高波动庄势，谨慎操作",
+                     "P": "🚨 高波动闲势，谨慎操作",
+                     "HOLD": "⛔ 高风险期，建议休息"},
+            "extreme": {"B": "⛔ 极高风险，强烈建议观望",
+                        "P": "⛔ 极高风险，强烈建议观望",
+                        "HOLD": "⛔ 市场混乱，暂停操作"}
+        }
+        return suggestions[risk_level].get(direction, "正常操作")
 
 # ========================== 看路推荐（原样保留） ==========================
 def road_recommendation(roads):
@@ -233,7 +278,6 @@ def road_recommendation(roads):
             final="顺路（偏红，延续）" if r>b else ("反路（偏蓝，注意反转）" if b>r else "暂无明显方向")
         else: final="暂无明显方向"
     return {"lines":lines,"final":final}
-
 
 # ========================== 输入区（原样保留） ==========================
 def parse_cards(input_str):
@@ -310,7 +354,6 @@ def display_complete_interface():
             handle_batch_input(batch)
         if qb or qp: handle_quick_input(qb,qp)
 
-
 # ========================== 智能分析（融合AI Hybrid + 状态信号 + 看路） ==========================
 def display_complete_analysis():
     if len(st.session_state.ultimate_games)<3:
@@ -336,44 +379,7 @@ def display_complete_analysis():
     elif hybrid<-threshold: direction="P"
     else: direction="HOLD"
     base_conf = min(0.9, 0.55 + min(0.35, abs(hybrid)*0.9))
-# ========================== 风险管理模块（补回原版） ==========================
-class ProfessionalRiskManager:
-    @staticmethod
-    def calculate_position_size(confidence, streak_info):
-        base = 1.0
-        if confidence > 0.8: base *= 1.2
-        elif confidence > 0.7: base *= 1.0
-        elif confidence > 0.6: base *= 0.8
-        else: base *= 0.5
-        if streak_info.get('current_streak', 0) >= 3:
-            base *= 1.1
-        return min(base, 2.0)
 
-    @staticmethod
-    def get_risk_level(confidence, volatility):
-        risk_score = (1 - confidence) + volatility
-        if risk_score < 0.3: return "low", "🟢 低风险"
-        if risk_score < 0.6: return "medium", "🟡 中风险"
-        if risk_score < 0.8: return "high", "🟠 高风险"
-        return "extreme", "🔴 极高风险"
-
-    @staticmethod
-    def get_trading_suggestion(risk_level, direction):
-        suggestions = {
-            "low": {"B": "✅ 庄势明确，可适度加仓",
-                    "P": "✅ 闲势明确，可适度加仓",
-                    "HOLD": "⚪ 趋势平衡，正常操作"},
-            "medium": {"B": "⚠️ 庄势一般，建议轻仓",
-                       "P": "⚠️ 闲势一般，建议轻仓",
-                       "HOLD": "⚪ 信号不明，建议观望"},
-            "high": {"B": "🚨 高波动庄势，谨慎操作",
-                     "P": "🚨 高波动闲势，谨慎操作",
-                     "HOLD": "⛔ 高风险期，建议休息"},
-            "extreme": {"B": "⛔ 极高风险，强烈建议观望",
-                        "P": "⛔ 极高风险，强烈建议观望",
-                        "HOLD": "⛔ 市场混乱，暂停操作"}
-        }
-        return suggestions[risk_level].get(direction, "正常操作")
     # 状态信号增强
     state_signals = GameStateDetector.detect(st.session_state.expert_roads)
     if state_signals:
@@ -410,7 +416,7 @@ class ProfessionalRiskManager:
     else:
         color="#FFE66D"; icon="⚪"; text="观望"; bg="linear-gradient(135deg,#FFE66D,#F9A826)"
 
-    # 风险文字
+    # 风险文字（基于指标构造的代理波动）
     vol = float(abs(metrics['momentum']))*0.6 + 0.4*(1 - abs(metrics['bayes']))
     risk_level, risk_text = ProfessionalRiskManager.get_risk_level(base_conf, vol)
 
@@ -461,9 +467,7 @@ class ProfessionalRiskManager:
 
     # 自学习（每5局一次，示例：当方向不是 HOLD 时才计入学习）
     if direction!='HOLD':
-        # 这里示例性标记“预测正确”与否：由于没有真实下一手结果，这里仅在缓冲满时更新权重以演示流程
-        AIHybridLearner.learn_update(correct=True)
-
+        AIHybridLearner.learn_update(correct=True)  # 示例：此处用 True 演示更新流程
 
 # ========================== 六路展示 / 统计 / 历史（原样保留） ==========================
 def display_complete_roads():
@@ -539,7 +543,6 @@ def display_complete_history():
                 elif g['result']=='P': st.info("闲赢")
                 else: st.warning("和局")
 
-
 # ========================== 主程序 ==========================
 def main():
     # 顶部侧边栏标题
@@ -573,4 +576,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
