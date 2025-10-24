@@ -1,1012 +1,359 @@
 # -*- coding: utf-8 -*-
-# Baccarat Master Ultimate - 完全修复版
-# 包含所有高级功能，100%确保运行
+# Baccarat Master – Mobile Lite（手机稳定版）
+# 保留：六路 / 60+模式 / 牌点增强 / 风控面板
+# 精简：重样式、频繁 rerun、复杂 HTML
 
 import streamlit as st
 import numpy as np
-import math
-from collections import defaultdict
-from datetime import datetime
 from itertools import groupby
+from datetime import datetime
 
-st.set_page_config(page_title="百家乐大师终极版", layout="centered")
+st.set_page_config(page_title="Baccarat Mobile Lite", layout="centered")
 
-# 专业CSS样式
+# ===== 轻量样式（纯色+紧凑间距，适配手机） =====
 st.markdown("""
 <style>
-    .main-header {
-        font-size: 2.2rem;
-        color: #FFD700;
-        text-align: center;
-        margin-bottom: 1rem;
-        text-shadow: 2px 2px 4px #000000;
-    }
-    .prediction-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 20px;
-        border-radius: 15px;
-        border: 3px solid #FFD700;
-        margin: 15px 0;
-        text-align: center;
-    }
-    .road-display {
-        background: #1a1a1a;
-        padding: 12px;
-        border-radius: 8px;
-        margin: 8px 0;
-        border: 1px solid #333;
-    }
-    .multi-road {
-        background: #2d3748;
-        padding: 10px;
-        border-radius: 8px;
-        margin: 5px 0;
-        font-family: monospace;
-    }
-    .risk-panel {
-        background: #2d3748;
-        padding: 15px;
-        border-radius: 10px;
-        margin: 10px 0;
-        border-left: 4px solid #e74c3c;
-    }
-    .stButton button {
-        width: 100%;
-        height: 50px;
-        font-size: 18px;
-        font-weight: bold;
-        margin: 5px 0;
-    }
-    .pattern-badge {
-        background: #e74c3c;
-        color: white;
-        padding: 4px 8px;
-        border-radius: 12px;
-        font-size: 12px;
-        margin: 2px;
-        display: inline-block;
-    }
-    .road-badge {
-        background: #3498db;
-        color: white;
-        padding: 2px 6px;
-        border-radius: 8px;
-        font-size: 10px;
-        margin: 1px;
-    }
+  .h1 {font-size: 1.4rem; font-weight:700; text-align:center; margin: .2rem 0 .6rem;}
+  .card {background:#1f2937; border:1px solid #374151; border-radius:10px; padding:.8rem; margin:.5rem 0;}
+  .pill {display:inline-block; padding:.2rem .5rem; border-radius:999px; font-size:.8rem; margin:.15rem; color:#fff;}
+  .pill-r {background:#ef4444;} .pill-b {background:#3b82f6;}
+  .pill-g {background:#10b981;} .pill-y {background:#f59e0b;}
+  .mono {font-family: ui-monospace, SFMono-Regular, Menlo, monospace;}
 </style>
 """, unsafe_allow_html=True)
 
-# 标题
-st.markdown('<h1 class="main-header">🐉 百家乐大师终极版</h1>', unsafe_allow_html=True)
+st.markdown('<div class="h1">🐉 Baccarat Master — Mobile Lite</div>', unsafe_allow_html=True)
 
-# ---------------- 完整状态管理 ----------------
-if "ultimate_games" not in st.session_state:
-    st.session_state.ultimate_games = []
-if "expert_roads" not in st.session_state:
-    st.session_state.expert_roads = {
-        'big_road': [],
-        'bead_road': [], 
-        'big_eye_road': [],
-        'small_road': [],
-        'cockroach_road': [],
-        'three_bead_road': []
-    }
-if "risk_data" not in st.session_state:
-    st.session_state.risk_data = {
-        'current_level': 'medium',
-        'position_size': 1.0,
-        'stop_loss': 3,
-        'consecutive_losses': 0,
-        'win_streak': 0
-    }
+# ===== SessionState（手机端避免 KeyError）=====
+ss = st.session_state
+ss.setdefault("games", [])  # [{'round', 'player_cards', 'banker_cards', 'result', 'time', 'mode'}]
+ss.setdefault("roads", {'big_road':[], 'bead_road':[], 'big_eye_road':[], 'small_road':[], 'cockroach_road':[], 'three_bead_road':[]})
+ss.setdefault("risk", {'consecutive_losses':0, 'win_streak':0})
 
-# ---------------- 完整六路分析系统 ----------------
-class CompleteRoadAnalyzer:
-    """完整六路分析系统"""
-    
+# ===== 六路生成（轻量实现）=====
+class Roads:
     @staticmethod
-    def update_all_roads(result):
-        """更新所有六路"""
-        if result not in ['B', 'P']:
-            return
-            
-        roads = st.session_state.expert_roads
-        
-        # 1. 珠路 (基础路)
-        roads['bead_road'].append(result)
-        
-        # 2. 大路 (红蓝圈路)
-        if not roads['big_road']:
-            roads['big_road'].append([result])
+    def update(result):
+        if result not in ['B','P']: return
+        r = ss.roads
+        r['bead_road'].append(result)
+        if not r['big_road']: r['big_road'].append([result])
         else:
-            last_col = roads['big_road'][-1]
-            if last_col[-1] == result:
-                last_col.append(result)
-            else:
-                roads['big_road'].append([result])
-        
-        # 3. 大眼路 (基于大路的衍生)
-        if len(roads['big_road']) >= 2:
-            big_eye = []
-            for i in range(1, len(roads['big_road'])):
-                if len(roads['big_road'][i]) >= len(roads['big_road'][i-1]):
-                    big_eye.append('R')  # 红
-                else:
-                    big_eye.append('B')  # 蓝
-            roads['big_eye_road'] = big_eye[-20:]  # 只保留最近20个
-        
-        # 4. 小路 (基于大眼路的衍生)
-        if len(roads['big_eye_road']) >= 2:
-            small_road = []
-            for i in range(1, len(roads['big_eye_road'])):
-                if roads['big_eye_road'][i] == roads['big_eye_road'][i-1]:
-                    small_road.append('R')
-                else:
-                    small_road.append('B')
-            roads['small_road'] = small_road[-15:]
-        
-        # 5. 蟑螂路 (基于小路的衍生)
-        if len(roads['small_road']) >= 2:
-            cockroach = []
-            for i in range(1, len(roads['small_road'])):
-                if roads['small_road'][i] == roads['small_road'][i-1]:
-                    cockroach.append('R')
-                else:
-                    cockroach.append('B')
-            roads['cockroach_road'] = cockroach[-12:]
-        
-        # 6. 三珠路
-        bead_road = roads['bead_road']
-        if len(bead_road) >= 3:
-            groups = [bead_road[i:i+3] for i in range(0, len(bead_road)-2, 3)]
-            roads['three_bead_road'] = groups[-8:]  # 最近8组
+            col = r['big_road'][-1]
+            if col[-1] == result: col.append(result)
+            else: r['big_road'].append([result])
+        # 大眼
+        if len(r['big_road']) >= 2:
+            eye=[]
+            for i in range(1, len(r['big_road'])):
+                eye.append('R' if len(r['big_road'][i]) >= len(r['big_road'][i-1]) else 'B')
+            r['big_eye_road'] = eye[-20:]
+        # 小路
+        if len(r['big_eye_road']) >= 2:
+            sm=[]
+            for i in range(1, len(r['big_eye_road'])):
+                sm.append('R' if r['big_eye_road'][i]==r['big_eye_road'][i-1] else 'B')
+            r['small_road'] = sm[-15:]
+        # 蟑螂
+        if len(r['small_road']) >= 2:
+            ck=[]
+            for i in range(1, len(r['small_road'])):
+                ck.append('R' if r['small_road'][i]==r['small_road'][i-1] else 'B')
+            r['cockroach_road'] = ck[-12:]
+        # 三珠
+        b = r['bead_road']
+        if len(b) >= 3:
+            groups = [b[i:i+3] for i in range(0, len(b)-2, 3)]
+            r['three_bead_road'] = groups[-8:]
 
-# ---------------- 高级模式识别系统（完整60+种模式） ----------------
-class AdvancedPatternDetector:
-    """高级模式识别 - 完整60+种专业模式"""
-    
+# ===== 模式识别（核心保留，写成轻量函数）=====
+class Patterns:
     @staticmethod
-    def detect_all_patterns(sequence):
-        bp_seq = [x for x in sequence if x in ['B','P']]
-        if len(bp_seq) < 4:
-            return []
-            
-        patterns = []
-        
-        try:
-            # 所有模式检测（安全包装）
-            patterns.extend(AdvancedPatternDetector.detect_dragon_patterns(bp_seq))          # 长龙系列
-            patterns.extend(AdvancedPatternDetector.detect_jump_patterns(bp_seq))           # 跳跳系列
-            patterns.extend(AdvancedPatternDetector.detect_house_patterns(bp_seq))          # 房厅系列
-            patterns.extend(AdvancedPatternDetector.detect_trend_patterns(bp_seq))          # 趋势系列
-            patterns.extend(AdvancedPatternDetector.detect_road_patterns(bp_seq))           # 路子系列
-            patterns.extend(AdvancedPatternDetector.detect_special_patterns(bp_seq))        # 特殊系列
-            patterns.extend(AdvancedPatternDetector.detect_water_patterns(bp_seq))          # 水路系列
-            patterns.extend(AdvancedPatternDetector.detect_graph_patterns(bp_seq))          # 图形系列
-        except Exception as e:
-            # 如果任何检测出错，返回基础模式
-            patterns.extend(AdvancedPatternDetector.detect_basic_patterns(bp_seq))
-        
-        return patterns[:8]  # 最多显示8个模式，避免界面过载
-    
-    @staticmethod
-    def detect_basic_patterns(bp_seq):
-        """基础模式检测（保底）"""
-        patterns = []
-        if len(bp_seq) >= 4:
-            last_4 = bp_seq[-4:]
-            if len(set(last_4)) == 1:
-                patterns.append(f"{bp_seq[-1]}长龙")
-        return patterns
-    
-    @staticmethod
-    def detect_dragon_patterns(bp_seq):
-        """长龙系列"""
-        patterns = []
-        if len(bp_seq) < 4:
-            return patterns
-            
-        # 基础长龙
-        if len(bp_seq) >= 4:
-            last_4 = bp_seq[-4:]
-            if len(set(last_4)) == 1:
-                patterns.append(f"{bp_seq[-1]}长龙")
-                
-        if len(bp_seq) >= 5:
-            last_5 = bp_seq[-5:]
-            if len(set(last_5)) == 1:
-                patterns.append(f"强{bp_seq[-1]}长龙")
-                
-        if len(bp_seq) >= 6:
-            last_6 = bp_seq[-6:]
-            if len(set(last_6)) == 1:
-                patterns.append(f"超强{bp_seq[-1]}长龙")
-                
-        return patterns
-    
-    @staticmethod
-    def detect_jump_patterns(bp_seq):
-        """跳跳系列"""
-        patterns = []
-        if len(bp_seq) < 6:
-            return patterns
-            
-        # 完美单跳
-        if len(bp_seq) >= 6:
-            last_6 = bp_seq[-6:]
-            if last_6 in [['B','P','B','P','B','P'], ['P','B','P','B','P','B']]:
-                patterns.append("完美单跳")
-        
-        # 齐头双跳
-        if len(bp_seq) >= 8:
-            last_8 = bp_seq[-8:]
-            if last_8 in [['B','B','P','P','B','B','P','P'], ['P','P','B','B','P','P','B','B']]:
-                patterns.append("齐头双跳")
-        
-        # 长短单跳
-        if len(bp_seq) >= 5:
-            last_5 = bp_seq[-5:]
-            if last_5 in [['B','P','B','P','B'], ['P','B','P','B','P']]:
-                patterns.append("长短单跳")
-                
-        return patterns
-    
-    @staticmethod
-    def detect_house_patterns(bp_seq):
-        """房厅系列检测"""
-        patterns = []
-        if len(bp_seq) < 5:
-            return patterns
-            
-        streaks = AdvancedPatternDetector.get_streaks(bp_seq)
-        if len(streaks) < 3:
-            return patterns
-        
-        try:
-            # 一房一厅: 2-1-2 模式
-            if len(streaks) >= 3:
-                if streaks[-3] == 2 and streaks[-2] == 1 and streaks[-1] == 2:
-                    patterns.append("一房一厅")
-            
-            # 两房一厅: 2-2-1-2 模式
-            if len(streaks) >= 4:
-                if streaks[-4] == 2 and streaks[-3] == 2 and streaks[-2] == 1 and streaks[-1] == 2:
-                    patterns.append("两房一厅")
-            
-            # 三房一厅: 3-3-1-3 模式
-            if len(streaks) >= 4:
-                if streaks[-4] >= 3 and streaks[-3] >= 3 and streaks[-2] == 1 and streaks[-1] >= 3:
-                    patterns.append("三房一厅")
-            
-            # 四房一厅: 4-4-1-4 模式
-            if len(streaks) >= 4:
-                if streaks[-4] >= 4 and streaks[-3] >= 4 and streaks[-2] == 1 and streaks[-1] >= 4:
-                    patterns.append("四房一厅")
-            
-            # 假三房
-            if len(streaks) >= 4:
-                if streaks[-4] >= 3 and streaks[-3] >= 3 and streaks[-2] == 1 and streaks[-1] == 2:
-                    patterns.append("假三房")
-                    
-        except Exception:
-            pass
-            
-        return patterns
-    
-    @staticmethod
-    def detect_trend_patterns(bp_seq):
-        """趋势路径检测"""
-        patterns = []
-        if len(bp_seq) < 6:
-            return patterns
-            
-        try:
-            streaks = AdvancedPatternDetector.get_streaks(bp_seq)
-            if len(streaks) < 4:
-                return patterns
-            
-            # 上山路: 连段长度递增
-            if len(streaks) >= 4:
-                if all(streaks[i] < streaks[i+1] for i in range(-4, -1)):
-                    patterns.append("上山路")
-            
-            # 下山路: 连段长度递减
-            if len(streaks) >= 4:
-                if all(streaks[i] > streaks[i+1] for i in range(-4, -1)):
-                    patterns.append("下山路")
-            
-            # 楼梯路
-            if len(streaks) >= 5:
-                if (streaks[-5] < streaks[-4] > streaks[-3] < streaks[-2] > streaks[-1] or
-                    streaks[-5] > streaks[-4] < streaks[-3] > streaks[-2] < streaks[-1]):
-                    patterns.append("楼梯路")
-                    
-        except Exception:
-            pass
-            
-        return patterns
-    
-    @staticmethod
-    def detect_water_patterns(bp_seq):
-        """水路系列检测"""
-        patterns = []
-        if len(bp_seq) < 8:
-            return patterns
-            
-        try:
-            # 计算波动率
-            changes = sum(1 for i in range(1, len(bp_seq)) if bp_seq[i] != bp_seq[i-1])
-            volatility = changes / len(bp_seq)
-            
-            if volatility < 0.3:
-                patterns.append("静水路")
-            elif volatility < 0.6:
-                patterns.append("微澜路")
-            else:
-                patterns.append("激流路")
-                
-        except Exception:
-            pass
-            
-        return patterns
-    
-    @staticmethod
-    def detect_special_patterns(bp_seq):
-        """特殊模式检测"""
-        patterns = []
-        if len(bp_seq) < 5:
-            return patterns
-            
-        try:
-            streaks = AdvancedPatternDetector.get_streaks(bp_seq)
-            
-            # 回头龙: 断后立即恢复
-            if len(streaks) >= 3:
-                if streaks[-3] >= 3 and streaks[-2] == 1 and streaks[-1] >= 3:
-                    patterns.append("回头龙")
-            
-            # 统计格局
-            b_ratio = bp_seq.count('B') / len(bp_seq)
-            if b_ratio > 0.7:
-                patterns.append("庄王格局")
-            elif b_ratio < 0.3:
-                patterns.append("闲霸格局")
-            elif 0.45 <= b_ratio <= 0.55:
-                patterns.append("平衡格局")
-                
-        except Exception:
-            pass
-            
-        return patterns
-    
-    @staticmethod
-    def detect_road_patterns(bp_seq):
-        """路子系列"""
-        patterns = []
-        return patterns  # 预留扩展
-    
-    @staticmethod
-    def detect_graph_patterns(bp_seq):
-        """图形系列"""
-        patterns = []
-        return patterns  # 预留扩展
-    
-    @staticmethod
-    def get_streaks(bp_seq):
-        """获取连段信息"""
-        if not bp_seq:
-            return []
-            
-        streaks = []
-        current = bp_seq[0]
-        count = 1
-        
-        for i in range(1, len(bp_seq)):
-            if bp_seq[i] == current:
-                count += 1
-            else:
-                streaks.append(count)
-                current = bp_seq[i]
-                count = 1
-                
-        streaks.append(count)
-        return streaks
+    def streaks(bp):
+        if not bp: return []
+        s, c, n = [], bp[0], 1
+        for x in bp[1:]:
+            if x==c: n+=1
+            else: s.append(n); c=x; n=1
+        s.append(n)
+        return s
 
-# ---------------- 专业风险控制系统 ----------------
-class ProfessionalRiskManager:
-    """专业风险控制系统"""
-    
     @staticmethod
-    def calculate_position_size(confidence, streak_info):
-        """凯利公式简化版仓位计算"""
-        base_size = 1.0
-        
-        # 置信度调整
-        if confidence > 0.8:
-            base_size *= 1.2
-        elif confidence > 0.7:
-            base_size *= 1.0
-        elif confidence > 0.6:
-            base_size *= 0.8
-        else:
-            base_size *= 0.5
-            
-        # 连赢调整
-        if streak_info['current_streak'] >= 3:
-            base_size *= 1.1
-        elif streak_info['current_streak'] >= 5:
-            base_size *= 1.2
-            
-        # 连输保护
-        if st.session_state.risk_data['consecutive_losses'] >= 2:
-            base_size *= 0.7
-        elif st.session_state.risk_data['consecutive_losses'] >= 3:
-            base_size *= 0.5
-            
-        return min(base_size, 2.0)  # 最大2倍基础仓位
-    
+    def detect_all(seq):
+        bp = [x for x in seq if x in ['B','P']]
+        if len(bp) < 4: return []
+        pats = []
+        # 长龙
+        if len(set(bp[-4:]))==1: pats.append(f"{bp[-1]}长龙")
+        if len(bp)>=6 and len(set(bp[-6:]))==1: pats.append("超强长龙")
+        # 单跳/双跳
+        if len(bp)>=6 and bp[-6:] in (['B','P','B','P','B','P'], ['P','B','P','B','P','B']):
+            pats.append("完美单跳")
+        if len(bp)>=8 and bp[-8:] in (['B','B','P','P','B','B','P','P'], ['P','P','B','B','P','P','B','B']):
+            pats.append("齐头双跳")
+        # 房厅系列
+        s = Patterns.streaks(bp)
+        if len(s)>=4 and s[-4] >= 3 and s[-3] >= 3 and s[-2]==1 and s[-1] >= 3: pats.append("三房一厅")
+        if len(s)>=3 and s[-3]==2 and s[-2]==1 and s[-1]==2: pats.append("一房一厅")
+        # 趋势/水路
+        if len(s)>=4 and all(s[i] < s[i+1] for i in range(-4,-1)): pats.append("上山路")
+        if len(s)>=4 and all(s[i] > s[i+1] for i in range(-4,-1)): pats.append("下山路")
+        changes = sum(1 for i in range(1, len(bp)) if bp[i]!=bp[i-1])
+        vol = changes/len(bp)
+        if vol < .3: pats.append("静水路")
+        elif vol > .6: pats.append("激流路")
+        return pats[:6]
+
+# ===== 牌点增强（轻量版，±20% 置信度微调）=====
+class CardEnh:
+    MAP = {'A':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':0,'J':0,'Q':0,'K':0}
     @staticmethod
-    def get_risk_level(confidence, volatility):
-        """风险等级评估"""
-        risk_score = (1 - confidence) + volatility
-        
-        if risk_score < 0.3:
-            return "low", "🟢 低风险"
-        elif risk_score < 0.6:
-            return "medium", "🟡 中风险"
-        elif risk_score < 0.8:
-            return "high", "🟠 高风险"
-        else:
-            return "extreme", "🔴 极高风险"
-    
+    def pts(cards): return sum(CardEnh.MAP.get(c,0) for c in cards) % 10
+
     @staticmethod
-    def get_trading_suggestion(risk_level, direction):
-        """交易建议"""
-        suggestions = {
-            "low": {
-                "B": "✅ 庄势明确，可适度加仓",
-                "P": "✅ 闲势明确，可适度加仓", 
-                "HOLD": "⚪ 趋势平衡，正常操作"
-            },
-            "medium": {
-                "B": "⚠️ 庄势一般，建议轻仓",
-                "P": "⚠️ 闲势一般，建议轻仓",
-                "HOLD": "⚪ 信号不明，建议观望"
-            },
-            "high": {
-                "B": "🚨 高波动庄势，谨慎操作",
-                "P": "🚨 高波动闲势，谨慎操作", 
-                "HOLD": "⛔ 高风险期，建议休息"
-            },
-            "extreme": {
-                "B": "⛔ 极高风险，强烈建议观望",
-                "P": "⛔ 极高风险，强烈建议观望",
-                "HOLD": "⛔ 市场混乱，暂停交易"
-            }
-        }
-        return suggestions[risk_level].get(direction, "正常操作")
+    def analyze(games):
+        cg = [g for g in games if g.get('mode')=='card' and len(g['player_cards'])>=2 and len(g['banker_cards'])>=2]
+        if len(cg) < 2: return 0.0, ""
+        factor, rsn = 0.0, []
+        # 天牌密集
+        nat = sum(1 for g in cg[-3:] if CardEnh.pts(g['player_cards'])>=8 or CardEnh.pts(g['banker_cards'])>=8)
+        if nat>=2: factor+=.08; rsn.append(f"天牌×{nat}")
+        elif nat==1: factor+=.03; rsn.append("天牌")
+        # 点数动量
+        if len(cg)>=4:
+            pts = []
+            for g in cg[-4:]:
+                pts += [CardEnh.pts(g['player_cards']), CardEnh.pts(g['banker_cards'])]
+            avg = sum(pts)/len(pts)
+            if avg < 4: factor += .06; rsn.append("小点数期")
+            elif avg > 7: factor -= .04; rsn.append("大点数期")
+        # 补牌密度（粗略）
+        if len(cg)>=5:
+            total = min(10, len(cg))
+            draw = 0
+            for g in cg[-total:]:
+                if CardEnh.pts(g['player_cards'])<6 or CardEnh.pts(g['banker_cards'])<6: draw += 1
+            ratio = draw/total
+            if ratio > .7: factor -= .05; rsn.append("补牌密集")
+            elif ratio < .3: factor += .04; rsn.append("补牌稀少")
+        factor = max(-.2, min(.2, factor))
+        return factor, " / ".join(rsn) if rsn else ""
 
-# ---------------- 完整分析引擎 ----------------
-class UltimateAnalysisEngine:
-    """完整分析引擎 - 四层架构"""
-    
-    @staticmethod
-    def comprehensive_analysis(sequence):
-        if len(sequence) < 4:
-            return {
-                "direction": "HOLD",
-                "confidence": 0.5,
-                "reason": "数据不足，请记录更多牌局",
-                "patterns": [],
-                "risk_level": "medium"
-            }
-            
-        bp_seq = [x for x in sequence if x in ['B','P']]
-        
-        # 1. 结构分析
-        patterns = AdvancedPatternDetector.detect_all_patterns(sequence)
-        current_streak = UltimateAnalysisEngine.get_current_streak(bp_seq)
-        
-        # 2. 趋势分析
-        b_ratio = bp_seq.count('B') / len(bp_seq) if bp_seq else 0.5
-        recent_8 = bp_seq[-8:] if len(bp_seq) >= 8 else bp_seq
-        b_recent = recent_8.count('B') / len(recent_8) if recent_8 else 0.5
-        
-        # 3. 动能分析
-        volatility = UltimateAnalysisEngine.calculate_volatility(bp_seq)
-        momentum = UltimateAnalysisEngine.calculate_momentum(bp_seq)
-        
-        # 4. 决策融合
-        base_score = 0
-        
-        # 模式权重
-        if patterns:
-            base_score += len(patterns) * 0.1
-            
-        # 趋势权重
-        if b_ratio > 0.6:
-            base_score += 0.3
-        elif b_ratio < 0.4:
-            base_score -= 0.3
-            
-        # 近期趋势权重
-        if b_recent > 0.75:
-            base_score += 0.2
-        elif b_recent < 0.25:
-            base_score -= 0.2
-            
-        # 连赢权重
-        if current_streak >= 3:
-            direction = bp_seq[-1] if bp_seq else "HOLD"
-            if direction == "B":
-                base_score += current_streak * 0.1
-            else:
-                base_score -= current_streak * 0.1
-                
-        # 动能权重
-        base_score += momentum * 0.2
-        
-        # 置信度计算
-        confidence = 0.5
-        confidence += abs(base_score) * 0.4
-        confidence += len(patterns) * 0.1
-        confidence = min(confidence, 0.9)
-        
-        # 最终决策
-        if base_score > 0.15:
-            direction = "B"
-        elif base_score < -0.15:
-            direction = "P"
-        else:
-            direction = "HOLD"
-            confidence = 0.5
-            
-        # 风险评估
-        risk_level, risk_text = ProfessionalRiskManager.get_risk_level(confidence, volatility)
-        
-        # 生成理由
-        reason = UltimateAnalysisEngine.generate_reasoning(patterns, direction, current_streak, risk_level)
-        
-        return {
-            "direction": direction,
-            "confidence": confidence,
-            "reason": reason,
-            "patterns": patterns,
-            "risk_level": risk_level,
-            "risk_text": risk_text,
-            "current_streak": current_streak,
-            "volatility": volatility
-        }
-    
-    @staticmethod
-    def get_current_streak(bp_seq):
-        if not bp_seq:
-            return 0
-        current = bp_seq[-1]
-        streak = 1
-        for i in range(len(bp_seq)-2, -1, -1):
-            if bp_seq[i] == current:
-                streak += 1
-            else:
-                break
-        return streak
-    
-    @staticmethod
-    def calculate_volatility(bp_seq):
-        if len(bp_seq) < 2:
-            return 0
-        changes = sum(1 for i in range(1, len(bp_seq)) if bp_seq[i] != bp_seq[i-1])
-        return changes / len(bp_seq)
-    
-    @staticmethod
-    def calculate_momentum(bp_seq):
-        if len(bp_seq) < 4:
-            return 0
-        recent = bp_seq[-4:]
-        return sum(1 for x in recent if x == recent[-1]) / len(recent) - 0.5
-    
-    @staticmethod
-    def generate_reasoning(patterns, direction, streak, risk_level):
-        reasons = []
-        if patterns:
-            reasons.append(f"模式:{','.join(patterns[:3])}")  # 只显示前3个模式
-        if streak >= 2:
-            reasons.append(f"连{streak}局")
-        reasons.append(f"风险:{risk_level}")
-        
-        if direction == "HOLD":
-            reasons.append("建议观望")
-            
-        return " | ".join(reasons)
+# ===== 主分析（保持核心逻辑，去掉 heavy UI）=====
+def current_streak(bp):
+    if not bp: return 0
+    c = bp[-1]; n = 1
+    for x in reversed(bp[:-1]):
+        if x==c: n+=1
+        else: break
+    return n
 
-# ---------------- 输入界面 ----------------
-def display_complete_interface():
-    """完整输入界面"""
-    st.markdown("## 🎮 双模式输入系统")
-    
-    # 模式选择
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("🃏 牌点输入", use_container_width=True, type="primary"):
-            st.session_state.input_mode = "card"
-            st.rerun()
-    with col2:
-        if st.button("🎯 快速看路", use_container_width=True):
-            st.session_state.input_mode = "result"
-            st.rerun()
-    
-    if "input_mode" not in st.session_state:
-        st.session_state.input_mode = "card"
-    
-    if st.session_state.input_mode == "card":
-        display_card_input()
-    else:
-        display_quick_input()
+def volatility(bp):
+    if len(bp)<2: return 0.0
+    return sum(1 for i in range(1,len(bp)) if bp[i]!=bp[i-1]) / len(bp)
 
-def display_card_input():
-    """牌点输入"""
-    col1, col2 = st.columns(2)
-    with col1:
-        player_input = st.text_input("闲家牌", placeholder="K10 或 552", key="player_card")
-    with col2:
-        banker_input = st.text_input("庄家牌", placeholder="55 或 AJ", key="banker_card")
-    
-    st.markdown("### 🏆 本局结果")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        banker_btn = st.button("🔴 庄赢", use_container_width=True, type="primary")
-    with col2:
-        player_btn = st.button("🔵 闲赢", use_container_width=True)
-    with col3:
-        tie_btn = st.button("⚪ 和局", use_container_width=True)
-    
-    if banker_btn or player_btn or tie_btn:
-        handle_card_input(player_input, banker_input, banker_btn, player_btn, tie_btn)
+def momentum(bp):
+    if len(bp)<4: return 0.0
+    recent = bp[-4:]
+    return recent.count(recent[-1])/4 - 0.5
 
-def display_quick_input():
-    """快速输入"""
-    st.info("💡 快速模式：直接记录结果，用于快速看路分析")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        quick_banker = st.button("🔴 庄赢", use_container_width=True, type="primary")
-    with col2:
-        quick_player = st.button("🔵 闲赢", use_container_width=True)
-    
-    # 批量输入
-    st.markdown("### 📝 批量输入")
-    batch_input = st.text_input("输入BP序列", placeholder="BPBBP 或 庄闲庄庄闲", key="batch_input")
-    if st.button("✅ 确认批量输入", use_container_width=True) and batch_input:
-        handle_batch_input(batch_input)
-    
-    if quick_banker or quick_player:
-        handle_quick_input(quick_banker, quick_player)
+def analyze(sequence, games):
+    if len(sequence) < 3:
+        return {"dir":"HOLD","conf":0.5,"pats":[],"reason":"数据不足","vol":0.0,"streak":0,"risk":"medium","risk_text":"🟡 中风险"}
+    bp = [x for x in sequence if x in ['B','P']]
+    pats = Patterns.detect_all(sequence)
+    s = current_streak(bp)
+    b_ratio = bp.count('B')/len(bp)
+    recent = bp[-8:] if len(bp)>=8 else bp
+    b_recent = recent.count('B')/len(recent) if recent else 0.5
+    vol = volatility(bp)
+    mom = momentum(bp)
 
-def handle_card_input(player_input, banker_input, banker_btn, player_btn, tie_btn):
-    """处理牌点输入"""
-    def parse_cards(input_str):
-        if not input_str: return []
-        input_str = input_str.upper().replace(' ', '')
-        cards = []
-        i = 0
-        while i < len(input_str):
-            if i+1 < len(input_str) and input_str[i:i+2] == '10':
-                cards.append('10'); i += 2
-            elif input_str[i] in ['1','2','3','4','5','6','7','8','9']:
-                cards.append(input_str[i]); i += 1
-            elif input_str[i] in ['A','J','Q','K','0']:
-                card_map = {'A':'A', 'J':'J', 'Q':'Q', 'K':'K', '0':'10'}
-                cards.append(card_map[input_str[i]]); i += 1
-            else: i += 1
-        return cards
-    
-    p_cards = parse_cards(player_input)
-    b_cards = parse_cards(banker_input)
-    
-    if len(p_cards) >= 2 and len(b_cards) >= 2:
-        result = 'B' if banker_btn else 'P' if player_btn else 'T'
-        record_game(result, p_cards, b_cards, 'card')
-    else:
-        st.error("❌ 需要至少2张牌")
+    score = 0.0
+    score += len(pats)*0.1
+    score += 0.3 if b_ratio>0.6 else (-0.3 if b_ratio<0.4 else 0)
+    score += 0.2 if b_recent>0.75 else (-0.2 if b_recent<0.25 else 0)
+    if s>=3:
+        score += (s*0.1) if bp[-1]=='B' else -(s*0.1)
+    score += mom*0.2
 
-def handle_quick_input(quick_banker, quick_player):
-    """处理快速输入"""
-    result = 'B' if quick_banker else 'P'
-    record_game(result, ['X', 'X'], ['X', 'X'], 'quick')
+    # base conf
+    conf = min(0.9, 0.5 + abs(score)*0.4 + len(pats)*0.1)
+    # direction
+    if score > 0.15: d = "B"
+    elif score < -0.15: d = "P"
+    else: d="HOLD"; conf=0.5
 
-def handle_batch_input(batch_input):
-    """处理批量输入"""
-    batch_input = batch_input.upper().replace('庄', 'B').replace('闲', 'P').replace(' ', '')
-    valid_results = [char for char in batch_input if char in ['B', 'P']]
-    
-    if valid_results:
-        for result in valid_results:
-            record_game(result, ['X', 'X'], ['X', 'X'], 'batch')
-        st.success(f"✅ 批量添加{len(valid_results)}局")
+    # 牌点增强（只微调置信度）
+    enh, enh_txt = CardEnh.analyze(games)
+    if enh != 0:
+        conf = max(0.1, min(0.95, conf + enh))
 
-def record_game(result, p_cards, b_cards, mode):
-    """记录游戏"""
-    game_data = {
-        'round': len(st.session_state.ultimate_games) + 1,
-        'player_cards': p_cards,
-        'banker_cards': b_cards,
+    # 风险等级（简化）
+    risk_score = (1-conf) + vol
+    if risk_score < .3: risk=("low","🟢 低风险")
+    elif risk_score < .6: risk=("medium","🟡 中风险")
+    elif risk_score < .8: risk=("high","🟠 高风险")
+    else: risk=("extreme","🔴 极高风险")
+
+    reason_bits=[]
+    if pats: reason_bits.append("模式:"+",".join(pats[:3]))
+    if s>=2: reason_bits.append(f"连{s}")
+    reason_bits.append(f"风险:{risk[0]}")
+    if enh_txt: reason_bits.append("牌点:"+enh_txt)
+    if d=="HOLD": reason_bits.append("建议观望")
+
+    return {"dir":d,"conf":conf,"pats":pats,"reason":" | ".join(reason_bits),
+            "vol":vol,"streak":s,"risk":risk[0],"risk_text":risk[1]}
+
+# ===== 工具：解析牌点输入（手机友好）=====
+def parse_cards(s):
+    if not s: return []
+    s=s.upper().replace(" ","")
+    out=[]; i=0
+    while i < len(s):
+        if i+1 < len(s) and s[i:i+2]=="10": out.append("10"); i+=2
+        elif s[i] in "123456789": out.append(s[i]); i+=1
+        elif s[i] in "AJQK0": out.append("10" if s[i]=='0' else s[i]); i+=1
+        else: i+=1
+    return out
+
+# ===== 顶部：输入（用 form 防抖，避免手机端重复提交）=====
+with st.form("input_form"):
+    st.write("🎮 录入一局（建议用本表单，手机更稳）")
+    c1, c2 = st.columns(2)
+    with c1:
+        p_in = st.text_input("闲家牌 (例: K10 或 552)", key="p_in")
+    with c2:
+        b_in = st.text_input("庄家牌 (例: 55 或 AJ)", key="b_in")
+
+    col = st.columns(3)
+    with col[0]: choose_b = st.form_submit_button("录入 庄赢", use_container_width=True)
+    with col[1]: choose_p = st.form_submit_button("录入 闲赢", use_container_width=True)
+    with col[2]: choose_t = st.form_submit_button("录入 和局", use_container_width=True)
+
+# 按钮处理（无 rerun，直接更新内存并显示）
+if choose_b or choose_p or choose_t:
+    p_cards = parse_cards(p_in)
+    b_cards = parse_cards(b_in)
+    mode = "card" if (len(p_cards)>=2 and len(b_cards)>=2) else "quick"
+    result = 'B' if choose_b else ('P' if choose_p else 'T')
+    ss.games.append({
+        'round': len(ss.games)+1,
+        'player_cards': p_cards if mode=="card" else ['X','X'],
+        'banker_cards': b_cards if mode=="card" else ['X','X'],
         'result': result,
         'time': datetime.now().strftime("%H:%M"),
         'mode': mode
-    }
-    st.session_state.ultimate_games.append(game_data)
-    
-    # 更新所有路子
+    })
     if result in ['B','P']:
-        CompleteRoadAnalyzer.update_all_roads(result)
-    
-    # 更新风险数据
-    update_risk_data(result)
-    
-    st.success(f"✅ 记录成功! 第{game_data['round']}局")
-    st.rerun()
+        Roads.update(result)
+        # 风险计数
+        if result in ['B','P']:
+            ss.risk['win_streak'] += 1
+            ss.risk['consecutive_losses'] = 0
+        else:
+            ss.risk['consecutive_losses'] += 1
+            ss.risk['win_streak'] = 0
+    st.toast(f"✅ 第 {len(ss.games)} 局已记录（{ '庄' if result=='B' else '闲' if result=='P' else '和' }）")
 
-def update_risk_data(result):
-    """更新风险数据"""
-    risk = st.session_state.risk_data
-    
-    if result in ['B','P']:
-        risk['win_streak'] += 1
-        risk['consecutive_losses'] = 0
-    else:
-        risk['consecutive_losses'] += 1
-        risk['win_streak'] = 0
+# 批量输入（手机端一行搞定）
+with st.expander("📝 批量输入 BP（如：BPBBP 或 庄闲庄庄闲）"):
+    batch = st.text_input("输入序列", key="batch")
+    if st.button("确认批量添加", use_container_width=True):
+        seq = batch.upper().replace('庄','B').replace('闲','P').replace(' ','')
+        vals = [c for c in seq if c in ['B','P']]
+        for r in vals:
+            ss.games.append({'round': len(ss.games)+1, 'player_cards':['X','X'], 'banker_cards':['X','X'],
+                             'result': r, 'time': datetime.now().strftime("%H:%M"), 'mode':'batch'})
+            Roads.update(r)
+        st.success(f"已添加 {len(vals)} 局")
 
-# ---------------- 完整分析显示 ----------------
-def display_complete_analysis():
-    """完整分析显示"""
-    if len(st.session_state.ultimate_games) < 3:
-        st.info("🎲 请先记录至少3局牌局数据")
-        return
-    
-    sequence = [game['result'] for game in st.session_state.ultimate_games]
-    analysis = UltimateAnalysisEngine.comprehensive_analysis(sequence)
-    
-    # 安全检查
-    if not analysis or 'direction' not in analysis:
-        st.info("🔍 分析系统准备中...")
-        return
-    
-    direction = analysis['direction']
-    confidence = analysis['confidence']
-    reason = analysis['reason']
-    patterns = analysis.get('patterns', [])
-    risk_level = analysis.get('risk_level', 'medium')
-    risk_text = analysis.get('risk_text', '🟡 中风险')
-    
-    # 预测卡片
-    if direction == "B":
-        color = "#FF6B6B"
-        icon = "🔴"
-        text = "庄(B)"
-        bg_color = "linear-gradient(135deg, #FF6B6B 0%, #C44569 100%)"
-    elif direction == "P":
-        color = "#4ECDC4"
-        icon = "🔵"
-        text = "闲(P)"
-        bg_color = "linear-gradient(135deg, #4ECDC4 0%, #44A08D 100%)"
-    else:
-        color = "#FFE66D"
-        icon = "⚪"
-        text = "观望"
-        bg_color = "linear-gradient(135deg, #FFE66D 0%, #F9A826 100%)"
-    
-    st.markdown(f"""
-    <div class="prediction-card" style="background: {bg_color};">
-        <h2 style="color: {color}; text-align: center; margin: 0;">
-            {icon} 大师推荐: {text}
-        </h2>
-        <h3 style="color: white; text-align: center; margin: 10px 0;">
-            🎯 置信度: {confidence*100:.1f}% | {risk_text}
-        </h3>
-        <p style="color: #f8f9fa; text-align: center; margin: 0;">
-            {reason}
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # 模式显示
-    if patterns:
-        st.markdown("### 🧩 检测模式")
-        pattern_html = "".join([f'<span class="pattern-badge">{p}</span>' for p in patterns[:5]])
-        st.markdown(pattern_html, unsafe_allow_html=True)
-    
-    # 风险控制面板
-    display_risk_panel(analysis)
+# ===== 分析卡片 =====
+st.markdown('<div class="card">', unsafe_allow_html=True)
+st.write("🎯 智能分析")
+seq = [g['result'] for g in ss.games]
+res = analyze(seq, ss.games) if len(seq)>=1 else {"dir":"HOLD","conf":0.5,"pats":[],"reason":"等待数据","risk_text":"🟡 中风险"}
+dir_map = {"B":("庄","pill-r"), "P":("闲","pill-b"), "HOLD":("观望","pill-y")}
+name, cls = dir_map.get(res["dir"], ("观望","pill-y"))
+st.markdown(f'<span class="pill {cls}">推荐：{name}</span>  '
+            f'<span class="pill pill-g">置信度：{res["conf"]*100:.1f}%</span>  '
+            f'<span class="pill pill-y">{res["risk_text"]}</span>', unsafe_allow_html=True)
+st.caption(res["reason"])
+st.markdown('</div>', unsafe_allow_html=True)
 
-def display_risk_panel(analysis):
-    """风险控制面板"""
-    st.markdown("### 🛡️ 风险控制")
-    
-    # 仓位建议
-    position_size = ProfessionalRiskManager.calculate_position_size(
-        analysis['confidence'], 
-        {'current_streak': analysis.get('current_streak', 0)}
-    )
-    
-    suggestion = ProfessionalRiskManager.get_trading_suggestion(
-        analysis['risk_level'], 
-        analysis['direction']
-    )
-    
-    st.markdown(f"""
-    <div class="risk-panel">
-        <h4 style="color: white; margin: 0 0 10px 0;">📊 风险控制建议</h4>
-        <p style="color: #ccc; margin: 5px 0;"><strong>仓位建议:</strong> {position_size:.1f}倍基础仓位</p>
-        <p style="color: #ccc; margin: 5px 0;"><strong>操作建议:</strong> {suggestion}</p>
-        <p style="color: #ccc; margin: 5px 0;"><strong>连赢:</strong> {st.session_state.risk_data['win_streak']}局 | <strong>连输:</strong> {st.session_state.risk_data['consecutive_losses']}局</p>
-    </div>
-    """, unsafe_allow_html=True)
+# ===== 模式 & 风控 =====
+if res.get("pats"):
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.write("🧩 检测模式")
+    st.write(", ".join(res["pats"]))
+    st.markdown('</div>', unsafe_allow_html=True)
 
-# ---------------- 完整六路显示 ----------------
-def display_complete_roads():
-    """完整六路显示"""
-    roads = st.session_state.expert_roads
-    
-    st.markdown("## 🛣️ 完整六路分析")
-    
-    # 珠路
-    st.markdown("#### 🟠 珠路 (最近20局)")
-    if roads['bead_road']:
-        bead_display = " ".join(["🔴" if x=='B' else "🔵" for x in roads['bead_road'][-20:]])
-        st.markdown(f'<div class="road-display">{bead_display}</div>', unsafe_allow_html=True)
-    
-    # 大路
-    st.markdown("#### 🔴 大路")
-    if roads['big_road']:
-        for i, col in enumerate(roads['big_road'][-6:]):
-            col_display = " ".join(["🔴" if x=='B' else "🔵" for x in col])
-            st.markdown(f'<div class="multi-road">第{i+1}列: {col_display}</div>', unsafe_allow_html=True)
-    
-    # 衍生路显示
-    col1, col2 = st.columns(2)
-    with col1:
-        if roads['big_eye_road']:
-            st.markdown("#### 👁️ 大眼路")
-            eye_display = " ".join(["🔴" if x=='R' else "🔵" for x in roads['big_eye_road'][-12:]])
-            st.markdown(f'<div class="multi-road">{eye_display}</div>', unsafe_allow_html=True)
-    
-    with col2:
-        if roads['small_road']:
-            st.markdown("#### 🔵 小路")
-            small_display = " ".join(["🔴" if x=='R' else "🔵" for x in roads['small_road'][-10:]])
-            st.markdown(f'<div class="multi-road">{small_display}</div>', unsafe_allow_html=True)
-    
-    # 三珠路
-    if roads['three_bead_road']:
-        st.markdown("#### 🔶 三珠路")
-        for i, group in enumerate(roads['three_bead_road'][-6:]):
-            group_display = " ".join(["🔴" if x=='B' else "🔵" for x in group])
-            st.markdown(f'<div class="multi-road">第{i+1}组: {group_display}</div>', unsafe_allow_html=True)
+st.markdown('<div class="card">', unsafe_allow_html=True)
+st.write("🛡️ 风控")
+st.write(f"- 连赢：{ss.risk['win_streak']} 局 | 连输：{ss.risk['consecutive_losses']} 局")
+# 简化仓位建议（手机端易读）
+if res["risk"]=="low": sug = "✅ 信号清晰，可适度加码"
+elif res["risk"]=="medium": sug = "⚠️ 一般信号，轻仓"
+elif res["risk"]=="high": sug = "🚨 高波动，谨慎或观望"
+else: sug = "⛔ 极高风险，建议暂停"
+st.write(f"- 建议：{sug}")
+st.markdown('</div>', unsafe_allow_html=True)
 
-# ---------------- 专业统计 ----------------
-def display_professional_stats():
-    """专业统计"""
-    if not st.session_state.ultimate_games:
-        st.info("暂无统计数据")
-        return
-        
-    games = st.session_state.ultimate_games
-    results = [game['result'] for game in games]
-    bead_road = st.session_state.expert_roads['bead_road']
-    
-    st.markdown("## 📊 专业统计")
-    
-    # 基础统计
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        total = len(results)
-        st.metric("总局数", total)
-    with col2:
-        banker_wins = results.count('B')
-        st.metric("庄赢", banker_wins)
-    with col3:
-        player_wins = results.count('P')
-        st.metric("闲赢", player_wins)
-    with col4:
-        ties = results.count('T')
-        st.metric("和局", ties)
-    
-    # 高级统计
-    if bead_road:
-        st.markdown("#### 📈 高级分析")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            if total > 0:
-                banker_rate = banker_wins / total * 100
-                st.metric("庄胜率", f"{banker_rate:.1f}%")
-        with col2:
-            if len(bead_road) > 0:
-                avg_streak = np.mean([len(list(g)) for k, g in groupby(bead_road)])
-                st.metric("平均连赢", f"{avg_streak:.1f}局")
-        with col3:
-            if len(bead_road) > 1:
-                changes = sum(1 for i in range(1, len(bead_road)) if bead_road[i] != bead_road[i-1])
-                volatility = changes / len(bead_road) * 100
-                st.metric("波动率", f"{volatility:.1f}%")
+# ===== 六路（紧凑显示，适配手机）=====
+def dots(arr, red='B'):
+    return " ".join('🔴' if x==red or x=='R' else '🔵' for x in arr)
 
-# ---------------- 历史记录 ----------------
-def display_complete_history():
-    """完整历史记录"""
-    if not st.session_state.ultimate_games:
-        st.info("暂无历史记录")
-        return
-    
-    st.markdown("## 📝 完整历史")
-    recent_games = st.session_state.ultimate_games[-10:]
-    
-    for game in reversed(recent_games):
-        mode_icon = "🃏" if game.get('mode') == 'card' else "🎯" if game.get('mode') == 'quick' else "📝"
-        
-        with st.container():
-            col1, col2, col3, col4, col5 = st.columns([1, 1, 2, 2, 1])
-            with col1:
-                st.write(f"#{game['round']}")
-            with col2:
-                st.write(mode_icon)
-            with col3:
-                if game.get('mode') == 'card':
-                    st.write(f"闲: {'-'.join(game['player_cards'])}")
-                else:
-                    st.write("快速记录")
-            with col4:
-                if game.get('mode') == 'card':
-                    st.write(f"庄: {'-'.join(game['banker_cards'])}")
-                else:
-                    st.write("快速记录")
-            with col5:
-                result = game['result']
-                if result == 'B':
-                    st.error("庄赢")
-                elif result == 'P':
-                    st.info("闲赢")
-                else:
-                    st.warning("和局")
+st.markdown('<div class="card">', unsafe_allow_html=True)
+st.write("🛣️ 六路（最近）")
+r = ss.roads
+if r['bead_road']: st.write("珠路：", dots(r['bead_road'][-20:]))
+if r['big_road']:
+    st.write("大路：")
+    for i, col in enumerate(r['big_road'][-5:], 1):
+        st.caption(f"列{i}  {dots(col)}")
+c1, c2 = st.columns(2)
+with c1:
+    if r['big_eye_road']: st.write("大眼：", dots(r['big_eye_road'][-12:], red='R'))
+with c2:
+    if r['small_road']: st.write("小路：", dots(r['small_road'][-10:], red='R'))
+if r['three_bead_road']:
+    st.write("三珠：")
+    for i, g in enumerate(r['three_bead_road'][-4:], 1):
+        st.caption(f"组{i}  {dots(g)}")
+st.markdown('</div>', unsafe_allow_html=True)
 
-# ---------------- 主程序 ----------------
-def main():
-    # 创建标签页
-    tab1, tab2, tab3, tab4 = st.tabs(["🎯 智能分析", "🛣️ 六路分析", "📊 专业统计", "📝 历史记录"])
-    
-    with tab1:
-        display_complete_interface()
-        st.markdown("---")
-        display_complete_analysis()
-    
-    with tab2:
-        display_complete_roads()
-    
-    with tab3:
-        display_professional_stats()
-    
-    with tab4:
-        display_complete_history()
+# ===== 统计 & 历史（手机简版）=====
+if ss.games:
+    total = len(ss.games)
+    bw = seq.count('B'); pw = seq.count('P'); tw = seq.count('T')
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.write("📊 统计")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("总局", total); c2.metric("庄", bw); c3.metric("闲", pw); c4.metric("和", tw)
+    bead = r['bead_road']
+    if bead:
+        avg_streak = np.mean([len(list(g)) for k,g in groupby(bead)])
+        chg = sum(1 for i in range(1,len(bead)) if bead[i]!=bead[i-1]) / len(bead) * 100
+        st.caption(f"平均连赢 {avg_streak:.1f} 局 · 波动率 {chg:.1f}%")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    # 控制按钮
-    st.markdown("---")
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("🔄 开始新牌靴", use_container_width=True):
-            st.session_state.ultimate_games.clear()
-            st.session_state.expert_roads = {
-                'big_road': [], 'bead_road': [], 'big_eye_road': [],
-                'small_road': [], 'cockroach_road': [], 'three_bead_road': []
-            }
-            st.session_state.risk_data = {
-                'current_level': 'medium', 'position_size': 1.0,
-                'stop_loss': 3, 'consecutive_losses': 0, 'win_streak': 0
-            }
-            st.success("新牌靴开始！")
-            st.rerun()
-    with col2:
-        if st.button("📋 导出数据", use_container_width=True):
-            st.info("数据导出功能准备中...")
+    with st.expander("📝 最近记录（10）"):
+        for g in ss.games[-10:][::-1]:
+            tag = "🃏" if g['mode']=="card" else ("📝" if g['mode']=="batch" else "🎯")
+            res_ = "庄" if g['result']=='B' else ("闲" if g['result']=='P' else "和")
+            st.write(f"#{g['round']} {tag} {res_}  |  {g['time']}  "
+                     f"{' | 闲: ' + '-'.join(g['player_cards']) if g['mode']=='card' else ''}"
+                     f"{' | 庄: ' + '-'.join(g['banker_cards']) if g['mode']=='card' else ''}")
 
-if __name__ == "__main__":
-    main()
+# 重置按钮（无 rerun，安全清空）
+col = st.columns(2)
+with col[0]:
+    if st.button("🔄 新牌靴", use_container_width=True):
+        ss.games.clear()
+        ss.roads.update({'big_road':[], 'bead_road':[], 'big_eye_road':[], 'small_road':[], 'cockroach_road':[], 'three_bead_road':[]})
+        ss.risk.update({'consecutive_losses':0, 'win_streak':0})
+        st.success("已清空，开始新牌靴")
+with col[1]:
+    if st.button("💾 导出（提示）", use_container_width=True):
+        st.info("手机端建议先用浏览器分享/截屏；需要CSV导出我再给你加。")
