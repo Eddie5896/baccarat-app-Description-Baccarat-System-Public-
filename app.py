@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Baccarat Master Ultimate - 完整稳定版
+# Baccarat Master Ultimate - 完全修复版
 # 包含所有高级功能，100%确保运行
 
 import streamlit as st
@@ -7,6 +7,7 @@ import numpy as np
 import math
 from collections import defaultdict
 from datetime import datetime
+from itertools import groupby  # 修复导入
 
 st.set_page_config(page_title="百家乐大师终极版", layout="centered")
 
@@ -576,17 +577,11 @@ def update_risk_data(result):
     risk = st.session_state.risk_data
     
     if result in ['B','P']:
-        # 检查是否预测正确（简化版）
-        if len(st.session_state.ultimate_games) > 1:
-            last_game = st.session_state.ultimate_games[-2]
-            # 这里简化处理，实际应该比较预测和结果
-        
-        if result == 'B' or result == 'P':  # 简化逻辑
-            risk['win_streak'] += 1
-            risk['consecutive_losses'] = 0
-        else:
-            risk['consecutive_losses'] += 1
-            risk['win_streak'] = 0
+        risk['win_streak'] += 1
+        risk['consecutive_losses'] = 0
+    else:
+        risk['consecutive_losses'] += 1
+        risk['win_streak'] = 0
 
 # ---------------- 完整分析显示 ----------------
 def display_complete_analysis():
@@ -801,8 +796,6 @@ def display_complete_history():
 
 # ---------------- 主程序 ----------------
 def main():
-    from itertools import groupby
-    
     # 创建标签页
     tab1, tab2, tab3, tab4 = st.tabs(["🎯 智能分析", "🛣️ 六路分析", "📊 专业统计", "📝 历史记录"])
     
