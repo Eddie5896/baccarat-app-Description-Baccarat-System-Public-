@@ -720,7 +720,10 @@ def run_light_simulation(n_shoes=5, shoe_len=60, seed=42):
                 # 再随机生成真实结果
                 r = random_baccarat_result()
                 # 更新模拟六路（仅B/P）
-                if r in ['B','P']:
+           for r in seq:
+    if r in ['B','P']:
+        if not roads['bead_road']:
+            roads['bead_road'].append(r) 
                     # 复制了六路逻辑（不污染会话对象）
     if r in ['B','P']:
     if not roads['bead_road']:
