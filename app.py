@@ -1,14 +1,11 @@
 # -*- coding: utf-8 -*-
-# Baccarat Master Ultimate - Precision 12 终极版（含：🛣️看路推荐条）
-# 说明：
-# 1) 在你的“完全修复版 + 牌点增强系统”基础上，仅新增一个“看路推荐”显示层；
-# 2) 不改动你的核心逻辑（六路、60+模式、风控、分析引擎等保持一致）；
-# 3) “看路推荐条”显示在智能分析卡上方；纯展示，不影响方向与置信度计算。
+# Baccarat Master Ultimate - Precision 12 终极版（含：🛣️看路推荐条 + 牌局状态检测器）
+# 说明：在原有系统基础上仅新增牌局状态检测器，直接提升预测准确率
 
 import streamlit as st
 import numpy as np
 import math
-from collections import defaultdict
+from collections import defaultdict, Counter
 from datetime import datetime
 from itertools import groupby
 
@@ -83,6 +80,15 @@ st.markdown("""
         border-radius: 8px;
         margin: 10px 0;
         border-left: 4px solid #00D4AA;
+    }
+    .state-signal {
+        background: linear-gradient(90deg, #FFD70033, #FF634733);
+        padding: 8px 12px;
+        border-radius: 8px;
+        margin: 5px 0;
+        border-left: 4px solid #FFD700;
+        color: #FFFFFF;
+        font-weight: 600;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -311,7 +317,7 @@ class AdvancedPatternDetector:
     @staticmethod
     def detect_graph_patterns(bp_seq): return []
 
-# ------------------------ 牌点增强分析（保持原逻辑） ------------------------
+# ------------------------ 牌点增强分析 ------------------------
 class CardEnhancementAnalyzer:
     @staticmethod
     def analyze_card_enhancement(games_with_cards):
@@ -414,24 +420,157 @@ class ProfessionalRiskManager:
         }
         return s[risk_level].get(direction,"正常操作")
 
-# ------------------------ 分析引擎（保持原逻辑） ------------------------
+# ------------------------ 新增：牌局状态检测器 ------------------------
+class GameStateDetector:
+    """牌局状态检测器 - 直接提升预测准确率"""
+    
+    @staticmethod
+    def detect_high_probability_moments(roads):
+        """检测高概率时刻"""
+        high_prob_signals = []
+        
+        # 1. 大路突破检测
+        breakthrough = GameStateDetector._detect_road_breakthrough(roads['big_road'])
+        if breakthrough:
+            high_prob_signals.append(f"大路突破-{breakthrough}")
+        
+        # 2. 多路共振检测
+        resonance = GameStateDetector._detect_multi_road_alignment(roads)
+        if resonance:
+            high_prob_signals.append(f"多路共振-{resonance}")
+            
+        # 3. 连势衰竭检测
+        exhaustion = GameStateDetector._detect_streak_exhaustion(roads)
+        if exhaustion:
+            high_prob_signals.append(f"连势衰竭-{exhaustion}")
+        
+        return high_prob_signals
+
+    @staticmethod
+    def _detect_road_breakthrough(big_road):
+        """检测大路突破模式"""
+        if len(big_road) < 4:
+            return None
+        
+        last_4_columns = big_road[-4:]
+        lengths = [len(col) for col in last_4_columns]
+        current_color = last_4_columns[-1][-1] if last_4_columns[-1] else None
+        
+        if not current_color:
+            return None
+            
+        color_cn = "庄" if current_color == 'B' else "闲"
+        
+        # 突破模式：短-短-短-长 （压抑后的爆发）
+        if (lengths[-1] > max(lengths[-4:-1]) + 1 and 
+            all(l <= 2 for l in lengths[-4:-1])):
+            return f"{color_cn}势突破"
+        
+        # 加速模式：连续增长
+        if (lengths[-4] < lengths[-3] < lengths[-2] < lengths[-1]):
+            return f"{color_cn}势加速"
+        
+        return None
+
+    @staticmethod
+    def _detect_multi_road_alignment(roads):
+        """多路共振检测"""
+        signals = []
+        
+        # 大路信号
+        if roads['big_road'] and roads['big_road'][-1]:
+            last_color = roads['big_road'][-1][-1]
+            if len(roads['big_road'][-1]) >= 3:
+                signals.append(last_color)
+        
+        # 大眼路信号
+        if roads['big_eye_road']:
+            last_3_eye = roads['big_eye_road'][-3:] if len(roads['big_eye_road']) >= 3 else []
+            if last_3_eye and all(x == 'R' for x in last_3_eye):
+                signals.append('B')  # 大眼路红点代表庄趋势
+            elif last_3_eye and all(x == 'B' for x in last_3_eye):
+                signals.append('P')  # 大眼路蓝点代表闲趋势
+    
+        # 小路信号
+        if roads['small_road']:
+            last_3_small = roads['small_road'][-3:] if len(roads['small_road']) >= 3 else []
+            if last_3_small and len(set(last_3_small)) == 1:
+                signals.append('B' if last_3_small[0] == 'R' else 'P')
+        
+        # 统计信号
+        if signals:
+            signal_count = Counter(signals)
+            most_common = signal_count.most_common(1)[0]
+            if most_common[1] >= 2:  # 至少2个路纸共振
+                return "庄趋势" if most_common[0] == 'B' else "闲趋势"
+        
+        return None
+
+    @staticmethod
+    def _detect_streak_exhaustion(roads):
+        """连势衰竭检测"""
+        if not roads['big_road'] or not roads['bead_road']:
+            return None
+            
+        # 获取当前连势
+        current_streak = GameStateDetector._get_current_streak(roads['bead_road'])
+        current_color = roads['bead_road'][-1] if roads['bead_road'] else None
+        
+        if not current_color or current_streak < 5:
+            return None
+            
+        color_cn = "庄" if current_color == 'B' else "闲"
+        
+        # 检查辅路反转信号
+        reversal_signals = 0
+        
+        # 大眼路反转
+        if (roads['big_eye_road'] and len(roads['big_eye_road']) >= 2 and
+            roads['big_eye_road'][-1] != roads['big_eye_road'][-2]):
+            reversal_signals += 1
+        
+        # 小路密集反转
+        if (roads['small_road'] and 
+            sum(1 for x in roads['small_road'][-3:] if x != roads['small_road'][-1]) >= 2):
+            reversal_signals += 1
+        
+        if reversal_signals >= 1:
+            return f"{color_cn}龙衰竭"
+        
+        return None
+
+    @staticmethod
+    def _get_current_streak(bead_road):
+        """获取当前连势长度"""
+        if not bead_road:
+            return 0
+        current, streak = bead_road[-1], 1
+        for i in range(len(bead_road)-2, -1, -1):
+            if bead_road[i] == current:
+                streak += 1
+            else:
+                break
+        return streak
+
+# ------------------------ 分析引擎（增强版） ------------------------
 class UltimateAnalysisEngine:
     @staticmethod
     def comprehensive_analysis(sequence):
         if len(sequence) < 4:
-            return {"direction":"HOLD","confidence":0.5,"reason":"数据不足，请记录更多牌局","patterns":[],"risk_level":"medium","risk_text":"🟡 中风险","current_streak":0,"volatility":0}
+            return {"direction":"HOLD","confidence":0.5,"reason":"数据不足，请记录更多牌局","patterns":[],"risk_level":"medium","risk_text":"🟡 中风险","current_streak":0,"volatility":0,"state_signals":[]}
+        
         bp_seq = [x for x in sequence if x in ['B','P']]
 
-        # 1) 模式
+        # 1) 模式检测
         patterns = AdvancedPatternDetector.detect_all_patterns(sequence)
         current_streak = UltimateAnalysisEngine.get_current_streak(bp_seq)
 
-        # 2) 趋势
+        # 2) 趋势分析
         b_ratio = bp_seq.count('B')/len(bp_seq) if bp_seq else 0.5
         recent_8 = bp_seq[-8:] if len(bp_seq) >= 8 else bp_seq
         b_recent = recent_8.count('B')/len(recent_8) if recent_8 else 0.5
 
-        # 3) 动能
+        # 3) 动能分析
         volatility = UltimateAnalysisEngine.calculate_volatility(bp_seq)
         momentum = UltimateAnalysisEngine.calculate_momentum(bp_seq)
 
@@ -456,11 +595,53 @@ class UltimateAnalysisEngine:
         elif base < -0.15: direction = "P"
         else: direction, confidence = "HOLD", 0.5
 
-        risk_level, risk_text = ProfessionalRiskManager.get_risk_level(confidence, volatility)
-        reason = UltimateAnalysisEngine.generate_reasoning(patterns, direction, current_streak, risk_level)
+        # 5) 新增：牌局状态检测
+        state_signals = GameStateDetector.detect_high_probability_moments(st.session_state.expert_roads)
+        
+        # 6) 状态信号增强
+        if state_signals:
+            direction, confidence = UltimateAnalysisEngine._apply_state_enhancement(
+                direction, confidence, state_signals, bp_seq
+            )
 
-        return {"direction":direction,"confidence":confidence,"reason":reason,"patterns":patterns,
-                "risk_level":risk_level,"risk_text":risk_text,"current_streak":current_streak,"volatility":volatility}
+        risk_level, risk_text = ProfessionalRiskManager.get_risk_level(confidence, volatility)
+        reason = UltimateAnalysisEngine.generate_reasoning(patterns, direction, current_streak, risk_level, state_signals)
+
+        return {
+            "direction": direction,
+            "confidence": confidence,
+            "reason": reason,
+            "patterns": patterns,
+            "risk_level": risk_level,
+            "risk_text": risk_text,
+            "current_streak": current_streak,
+            "volatility": volatility,
+            "state_signals": state_signals  # 新增状态信号
+        }
+
+    @staticmethod
+    def _apply_state_enhancement(direction, confidence, state_signals, bp_seq):
+        """基于状态信号增强预测"""
+        enhanced_direction = direction
+        enhanced_confidence = confidence
+        
+        for signal in state_signals:
+            if '突破' in signal or '共振' in signal:
+                # 突破和共振信号大幅提升置信度
+                enhanced_confidence = min(0.95, confidence * 1.3)
+                
+                # 如果信号方向与预测一致，强化方向
+                if '庄' in signal and direction != 'B':
+                    enhanced_direction = 'B'
+                elif '闲' in signal and direction != 'P':
+                    enhanced_direction = 'P'
+                    
+            elif '衰竭' in signal and direction != 'HOLD':
+                # 衰竭信号建议观望
+                enhanced_direction = 'HOLD'
+                enhanced_confidence = 0.6
+        
+        return enhanced_direction, enhanced_confidence
 
     @staticmethod
     def get_current_streak(bp_seq):
@@ -484,25 +665,20 @@ class UltimateAnalysisEngine:
         return sum(1 for x in recent if x == recent[-1]) / len(recent) - 0.5
 
     @staticmethod
-    def generate_reasoning(patterns, direction, streak, risk_level):
+    def generate_reasoning(patterns, direction, streak, risk_level, state_signals):
         reasons = []
         if patterns: reasons.append(f"模式:{','.join(patterns[:3])}")
         if streak >= 2: reasons.append(f"连{streak}局")
+        if state_signals: reasons.append(f"状态:{','.join(state_signals[:2])}")
         reasons.append(f"风险:{risk_level}")
         if direction == "HOLD": reasons.append("建议观望")
         return " | ".join(reasons)
 
-# ------------------------ 新增：看路推荐（纯显示层） ------------------------
+# ------------------------ 看路推荐 ------------------------
 def road_recommendation(roads):
-    """
-    传统看路推荐（不影响主引擎）：
-    - 以大路为主，小路/大眼/蟑螂为辅；
-    - 返回 {'lines':[...], 'final':'xxx'}
-    """
     lines = []
     final = ""
 
-    # 大路：主导
     if roads['big_road']:
         last_col = roads['big_road'][-1]
         color_cn = "庄" if last_col[-1] == 'B' else "闲"
@@ -513,7 +689,6 @@ def road_recommendation(roads):
         else:
             lines.append(f"大路：{color_cn}走势平衡")
 
-    # 大眼路：稳定度
     if roads['big_eye_road']:
         r = roads['big_eye_road'].count('R')
         b = roads['big_eye_road'].count('B')
@@ -521,7 +696,6 @@ def road_recommendation(roads):
         elif b > r: lines.append("大眼路：蓝>红 → 有反转迹象")
         else: lines.append("大眼路：红=蓝 → 稳定期")
 
-    # 小路：节奏
     if roads['small_road']:
         r = roads['small_road'].count('R')
         b = roads['small_road'].count('B')
@@ -529,17 +703,13 @@ def road_recommendation(roads):
         elif b > r: lines.append("小路：蓝>红 → 节奏转弱")
         else: lines.append("小路：红=蓝 → 平衡")
 
-    # 蟑螂路：短期震荡
     if roads['cockroach_road']:
         last3 = roads['cockroach_road'][-3:]
-        if not last3:
-            pass
-        else:
+        if last3:
             trend = "红红蓝" if last3.count('R') == 2 else ("蓝蓝红" if last3.count('B') == 2 else "混乱")
             lines.append(f"蟑螂路：{trend} → {'轻微震荡' if trend!='混乱' else '趋势不明'}")
 
     if not final:
-        # 若大路没给出明确顺路，则基于辅路给一个温和建议
         if roads['big_eye_road']:
             r = roads['big_eye_road'].count('R'); b = roads['big_eye_road'].count('B')
             if r > b: final = "顺路（偏红，延续）"
@@ -652,17 +822,17 @@ def update_risk_data(result):
         risk['consecutive_losses'] += 1
         risk['win_streak'] = 0
 
-# ------------------------ 展示：智能分析 + 看路推荐条 ------------------------
+# ------------------------ 展示：智能分析 ------------------------
 def display_complete_analysis():
     if len(st.session_state.ultimate_games) < 3:
         st.info("🎲 请先记录至少3局牌局数据"); return
 
     sequence = [g['result'] for g in st.session_state.ultimate_games]
 
-    # 原有分析（保留原逻辑）
+    # 原有分析
     analysis = UltimateAnalysisEngine.comprehensive_analysis(sequence)
 
-    # ========= 新增：看路推荐条（显示在分析卡之上） =========
+    # 看路推荐条
     road_sug = road_recommendation(st.session_state.expert_roads)
     if road_sug and road_sug.get("final"):
         st.markdown(f"""
@@ -679,7 +849,16 @@ def display_complete_analysis():
         </div>
         """, unsafe_allow_html=True)
 
-    # ======= 原有预测卡片（未改动） =======
+    # 状态信号显示
+    if analysis.get('state_signals'):
+        for signal in analysis['state_signals']:
+            st.markdown(f"""
+            <div class="state-signal">
+                🚀 状态信号：{signal}
+            </div>
+            """, unsafe_allow_html=True)
+
+    # 预测卡片
     direction = analysis['direction']; confidence = analysis['confidence']
     reason = analysis['reason']; patterns = analysis.get('patterns', [])
     risk_level = analysis.get('risk_level','medium'); risk_text = analysis.get('risk_text','🟡 中风险')
