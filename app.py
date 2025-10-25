@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-# Baccarat Master Ultimate - Precision 13.5 Ultimate · EOR Fusion 版
-# 只加不减：在 Precision 13（增强版）上升级 EOR 算法 + HOLD≤15% 限频
-# 保留你现有的全部模块/界面/统计/导出/六路/风控/学习/动态阈值/权重自适应
+# Baccarat Master Ultimate - Precision 15.0 Ultimate · EOR-Bayes Fusion 版
+# 在 Precision 13.5（EOR+ + HOLD≤15% 限频）基础上，无损升级 EOR 为「EOR-Bayes 后验融合」
+# ✅ 保留你现有的全部模块/界面/统计/导出/六路/风控/学习/动态阈值/权重自适应
+# ✅ 新增：EOR-Bayes（含可选 Monte-Carlo Light 平滑）、侧边栏参数开关
 
 import streamlit as st
 import numpy as np
@@ -12,7 +13,7 @@ from datetime import datetime
 from itertools import groupby
 
 # ========================== 基础配置 ==========================
-st.set_page_config(page_title="🐉 百家乐大师 Precision 13.5 · EOR Fusion", layout="centered")
+st.set_page_config(page_title="🐉 百家乐大师 Precision 15.0 · EOR-Bayes Fusion", layout="centered")
 
 st.markdown("""
 <style>
@@ -35,7 +36,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<h1 class="main-header">🐉 百家乐大师 Precision 13.5 · EOR Fusion</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-header">🐉 百家乐大师 Precision 15.0 · EOR-Bayes Fusion</h1>', unsafe_allow_html=True)
 
 # ========================== 状态初始化 ==========================
 def _init_state():
@@ -54,8 +55,14 @@ def _init_state():
     ss.setdefault("performance_warnings", [])
     ss.setdefault("last_prediction", None)
     ss.setdefault("weight_performance", {'z': [], 'cusum': [], 'bayes': [], 'momentum': [], 'eor': []})
-    # 13.5 新增：HOLD 目标上限
-    ss.setdefault("hold_cap_ratio", 0.15)  # HOLD 不超过 15%
+    # 限频：HOLD 目标上限
+    ss.setdefault("hold_cap_ratio", 0.15)
+    # 15.0 新增：EOR-Bayes 参数
+    ss.setdefault("eor_use_mc", True)        # 是否启用 Monte-Carlo Light 平滑
+    ss.setdefault("eor_mc_n", 400)           # 采样数（建议 200~800）
+    ss.setdefault("eor_k_bias", 1.10)        # 多窗偏差的强度系数
+    ss.setdefault("eor_k_align", 0.85)       # 路单对齐的强度系数
+    ss.setdefault("eor_entropy_damp", 0.35)  # 熵抑制系数（越大越保守）
 _init_state()
 
 # ========================== 六路分析（保留） ==========================
@@ -110,7 +117,7 @@ class AdvancedPatternDetector:
         if len(s)>=4 and all(s[i]<s[i+1] for i in range(-4,-1)):p.append("上山路")
         return p[:8]
 
-# ========================== GameState（保留并轻微清理） ==========================
+# ========================== GameState（保留） ==========================
 class GameStateDetector:
     @staticmethod
     def _get_current_streak(bead):
@@ -171,37 +178,37 @@ class GameStateDetector:
         if ex: out.append(f"连势衰竭-{ex}")
         return out
 
-# ========================== EOR / 指标核心（EOR+ 升级点） ==========================
-class HybridMathCore:
+# ========================== 15.0 EOR-Bayes / 指标核心 ==========================
+class EORBayesFusion:
+    """
+    将原 EOR+ 替换为「EOR-Bayes 后验融合」：
+      1) 先验：用历史 B/P 频率得到 P0(B)
+      2) 似然：由多时间窗偏差 + 路单对齐 → 映射为 L = P(data|B)
+          * 融合窗口：12/24/48（指数权重）
+          * 路单对齐：大路末列、BigEye、Small
+      3) Bayes 后验：PosteriorOdds = PriorOdds * LR (LR = L/(1-L))
+      4) 熵抑制：高熵→靠拢 0.5
+      5) decks 缩放：sqrt 副数抑制过拟合
+      6) 可选 Monte-Carlo Light：对 (bias, align) 做微扰抽样，平滑后验
+    输出：映射到约 [-0.6, 0.6] 的“EOR 数值”，并保持与 13.5 接口一致
+    """
     @staticmethod
-    def _eor_plus(seq, roads, decks):
-        """
-        13.5 升级：EOR+（无删减前提下替换原 eor 的计算）
-        思路：
-          1) 多时间窗偏差：win12 / win24 / win48，指数衰减融合（最近更重）
-          2) 路单对齐：大路末列 & BigEye/Small 近3一致 → +对齐分
-          3) 熵惩罚：混沌高时衰减偏差幅度
-          4) 副数缩放：仍保留 decks，但不再线性，而是 sqrt 缩放抑制过拟合
-        输出范围约 ~ [-0.6, 0.6]
-        """
-        bp=[x for x in seq if x in ['B','P']]
+    def _multiwindow_bias(bp):
         n=len(bp)
-        if n<6:
-            return 0.0
-
-        def bias_win(k):
+        if n<6: return 0.0
+        def win_bias(k):
             if n<k: return 0.0
             last=bp[-k:]
             pB=last.count('B')/k
             return (pB - (1-pB))  # B-P
+        b12 = win_bias(12)
+        b24 = win_bias(24)
+        b48 = win_bias(48)
+        # 指数衰减融合：最近更重
+        return 0.50*b12 + 0.30*b24 + 0.20*b48
 
-        # 多窗融合（指数权重）
-        win12 = bias_win(12)
-        win24 = bias_win(24)
-        win48 = bias_win(48)
-        fused_bias = (0.50*win12 + 0.30*win24 + 0.20*win48)
-
-        # 路单对齐分（与 GameStateDetector 的 _detect_multi_road_alignment 一致逻辑）
+    @staticmethod
+    def _road_alignment(roads):
         align = 0.0
         if roads['big_road'] and roads['big_road'][-1]:
             last_col = roads['big_road'][-1]
@@ -215,21 +222,80 @@ class HybridMathCore:
             last3=roads['small_road'][-3:]
             if last3 and len(set(last3))==1:
                 align += 0.05 if last3[0]=='R' else -0.05
+        return align
 
-        # 熵惩罚（越混沌 |fused| 越小）
+    @staticmethod
+    def _sigmoid(x):
+        return 1.0/(1.0+math.exp(-x))
+
+    @staticmethod
+    def _posterior_once(seq, roads, decks, k_bias, k_align, entropy_damp):
+        bp=[x for x in seq if x in ['B','P']]
+        n=len(bp)
+        if n<6:
+            return 0.0
+
+        # ---- 先验 P0(B)（拉普拉斯平滑）----
+        p0B = (bp.count('B') + 1) / (n + 2)
+        p0B = float(np.clip(p0B, 0.05, 0.95))
+        prior_odds = p0B / (1 - p0B)
+
+        # ---- 似然 L = P(data|B) ----
+        fused_bias = EORBayesFusion._multiwindow_bias(bp)          # [-1,1] 附近
+        align = EORBayesFusion._road_alignment(roads)              # 小幅正负
+        # 将 (bias, align) 映射到 logit 空间，系数可调
+        logit_like = k_bias * fused_bias + k_align * align
+        L = EORBayesFusion._sigmoid(logit_like)                    # (0,1)
+
+        # ---- Bayes 后验 ----
+        lr = L / max(1e-9, (1-L))                                  # 似然比
+        post_odds = prior_odds * lr
+        post_B = post_odds / (1 + post_odds)                       # Posterior P(B)
+        post_B = float(np.clip(post_B, 1e-4, 1-1e-4))
+
+        # ---- 熵抑制 + decks 缩放 ----
+        pB_all = bp.count('B')/n
+        pP_all = 1-pB_all
+        entropy = -(pB_all*np.log2(pB_all+1e-9)+pP_all*np.log2(pP_all+1e-9))  # ~[0,1]
+        # 越混沌→越靠近0.5
+        post_B_adj = 0.5 + (post_B - 0.5) * (1.0 - entropy_damp * entropy)
+
+        deck_scale = np.sqrt(max(1, decks)) / 4.0                  # 温和抑制
+        # 转为对称值并限制幅度（与 13.5 对齐范围）
+        eor_val = float(np.clip((post_B_adj - 0.5) * (1.0 + deck_scale) * 1.2, -0.6, 0.6))
+        return eor_val
+
+    @staticmethod
+    def posterior(seq, roads, decks, use_mc=True, mc_n=400, k_bias=1.10, k_align=0.85, entropy_damp=0.35):
+        """
+        对外主接口：返回与原 eor 等价的“对称值”。
+        use_mc=True 时，对 (bias, align) 的内部 logit 做小扰动采样平滑，提升稳健性。
+        """
+        if not use_mc:
+            return EORBayesFusion._posterior_once(seq, roads, decks, k_bias, k_align, entropy_damp)
+
+        # Monte-Carlo Light：对 logit_like 的输入做微扰，避免单点抖动
+        # 给到 0 均值的小高斯噪声，规模随样本量和熵适度调整
+        bp=[x for x in seq if x in ['B','P']]
+        n=len(bp)
+        if n<6:
+            return 0.0
         pB = bp.count('B')/n
-        pP = 1-pB
-        entropy = -(pB*np.log2(pB+1e-9)+pP*np.log2(pP+1e-9))  # ~ [0,1]
-        entropy_penalty = (1.0 - 0.35*entropy)
+        entropy = -(pB*np.log2(pB+1e-9)+(1-pB)*np.log2(1-pB+1e-9))
+        noise_scale = 0.10 + 0.10*entropy + max(0, 0.10 - min(0.10, n/2000))  # 0.10~0.25 左右
+        samples=[]
+        for _ in range(int(mc_n)):
+            kb = np.random.normal(k_bias, noise_scale*0.15)     # 轻扰动
+            ka = np.random.normal(k_align, noise_scale*0.12)
+            val = EORBayesFusion._posterior_once(seq, roads, decks, kb, ka, entropy_damp)
+            samples.append(val)
+        # 采用截尾均值（抗异常值）
+        arr = np.array(samples)
+        lo, hi = np.percentile(arr, [10, 90])
+        trimmed = arr[(arr>=lo)&(arr<=hi)]
+        return float(np.mean(trimmed) if trimmed.size>0 else np.mean(arr))
 
-        # decks 缩放（抑制过大副数夸大）
-        deck_scale = np.sqrt(max(1, decks))/4.0  # 1副≈0.25，8副≈0.707/4≈0.177 → 温和
-
-        # 组合
-        raw = (fused_bias * 0.85 + align) * entropy_penalty
-        eor_plus = float(np.clip(raw * (1.0 + deck_scale), -0.6, 0.6))
-        return eor_plus
-
+class HybridMathCore:
     @staticmethod
     def compute_metrics(seq):
         bp=[x for x in seq if x in ['B','P']]
@@ -248,10 +314,16 @@ class HybridMathCore:
         pB=bp.count('B')/len(bp); pP=1-pB
         entropy=-(pB*np.log2(pB+1e-9)+pP*np.log2(pP+1e-9))
 
-        # === 替换为 EOR+ ===
+        # === 15.0：EOR-Bayes 核心 ===
         decks=st.session_state.eor_decks
         roads = st.session_state.expert_roads
-        eor = HybridMathCore._eor_plus(seq, roads, decks)
+        use_mc = bool(st.session_state.eor_use_mc)
+        mc_n   = int(st.session_state.eor_mc_n)
+        k_bias = float(st.session_state.eor_k_bias)
+        k_align= float(st.session_state.eor_k_align)
+        damp   = float(st.session_state.eor_entropy_damp)
+        eor = EORBayesFusion.posterior(seq, roads, decks, use_mc=use_mc, mc_n=mc_n,
+                                       k_bias=k_bias, k_align=k_align, entropy_damp=damp)
 
         m = {'z':float(z),'cusum':float(cusum),'bayes':float(bayes),'momentum':float(momentum),'entropy':float(entropy),'eor':float(eor)}
         st.session_state.ai_last_metrics = m
@@ -293,7 +365,7 @@ class EnhancedLogicCore:
         thr_base += min(pattern_strength, 0.05)
         road_alignment = EnhancedLogicCore.calculate_road_alignment(roads)
         thr_base -= road_alignment * 0.02
-        return float(np.clip(thr_base, 0.04, 0.12))  # 收紧上限些，配合 HOLD 限频
+        return float(np.clip(thr_base, 0.04, 0.12))
 
     @staticmethod
     def calculate_road_alignment(roads):
@@ -571,16 +643,23 @@ def display_complete_analysis():
     hybrid, metrics = AIHybridLearner.compute_hybrid(seq)
 
     with st.sidebar:
-        decks = st.slider("EOR 计算副数（1-8）", 1, 8, int(st.session_state.eor_decks), key="eor_slider")
+        st.markdown("### 🤖 EOR-Bayes 设置")
+        decks = st.slider("EOR 副数（1-8）", 1, 8, int(st.session_state.eor_decks), key="eor_slider")
         if decks != st.session_state.eor_decks:
             st.session_state.eor_decks = decks
+        st.toggle("启用 Monte-Carlo 平滑", key="eor_use_mc", value=st.session_state.eor_use_mc)
+        st.slider("MC 采样数", 100, 1000, int(st.session_state.eor_mc_n), 50, key="eor_mc_n")
+        st.slider("偏差强度 k_bias", 0.6, 1.8, float(st.session_state.eor_k_bias), 0.05, key="eor_k_bias")
+        st.slider("对齐强度 k_align", 0.3, 1.5, float(st.session_state.eor_k_align), 0.05, key="eor_k_align")
+        st.slider("熵抑制 entropy_damp", 0.1, 0.6, float(st.session_state.eor_entropy_damp), 0.02, key="eor_entropy_damp")
+
         st.markdown("### 🤖 AI 权重（动态优化后）")
         st.write({k: round(v,3) for k,v in st.session_state.ai_weights.items()})
 
     state_signals = GameStateDetector.detect(st.session_state.expert_roads)
 
     st.markdown('<div class="enhanced-logic-panel">', unsafe_allow_html=True)
-    st.markdown("### 🧠 智能决策引擎（EOR+ + 动态阈值 + 限频HOLD）")
+    st.markdown("### 🧠 智能决策引擎（EOR-Bayes + 动态阈值 + 限频HOLD）")
 
     # 动态阈值
     threshold = EnhancedLogicCore.enhanced_dynamic_threshold(seq, metrics, st.session_state.expert_roads)
@@ -589,14 +668,14 @@ def display_complete_analysis():
     actual_results = [g['result'] for g in st.session_state.ultimate_games]
     optimized_weights = EnhancedLogicCore.adaptive_weight_optimization(seq, actual_results)
 
-    # 用优化后的权重修正 hybrid（保持与 13 版展示一致）
+    # 用优化后的权重修正 hybrid（保持与原展示一致）
     hybrid = (metrics['z'] * optimized_weights['z'] + 
               metrics['cusum'] * optimized_weights['cusum'] + 
               metrics['bayes'] * optimized_weights['bayes'] +
               metrics['momentum'] * optimized_weights['momentum'] + 
               metrics['eor'] * optimized_weights['eor'])
 
-    # 投票兜底（与 13 版一致）
+    # 投票兜底
     m = metrics
     def sgn(x): return 'B' if x>0 else ('P' if x<0 else 'HOLD')
     votes = [sgn(m['z']), sgn(m['cusum']), sgn(m['momentum']), sgn(m['bayes']), sgn(m['eor'])]
@@ -608,9 +687,7 @@ def display_complete_analysis():
     elif hybrid < -threshold: prelim = "P"
     else: prelim = "HOLD"
 
-    # HOLD 限频策略：
-    # 1) 若近 40 次 HOLD 比例 > hold_cap_ratio，则放宽阈值 10% 并允许投票兜底改向
-    # 2) 若当前判 HOLD 且投票有明显多数(>=3/5)，改向为投票方向并设置较低置信底 0.56
+    # HOLD 限频策略
     hist = st.session_state.prediction_stats.get('prediction_history', [])
     recent_window = hist[-40:] if len(hist)>=40 else hist
     hold_ratio_recent = np.mean([1 if h['prediction']=='HOLD' else 0 for h in recent_window]) if recent_window else 0.0
@@ -625,7 +702,7 @@ def display_complete_analysis():
             direction = vote_dir
             base_conf = max(base_conf, 0.56)
 
-    # 边际反转（原逻辑保留）
+    # 边际反转
     margin = abs(hybrid) - threshold
     if prelim != "HOLD" and margin < 0.04 and vote_dir in ['B','P'] and vote_dir != prelim:
         direction = vote_dir
@@ -704,7 +781,7 @@ def display_complete_analysis():
       <div class="row"><div>CUSUM</div><div>{badge(metrics['cusum'])} · w={w['cusum']:.2f}</div></div>
       <div class="row"><div>Bayes</div><div>{badge(metrics['bayes'])} · w={w['bayes']:.2f}</div></div>
       <div class="row"><div>Momentum</div><div>{badge(metrics['momentum'])} · w={w['momentum']:.2f}</div></div>
-      <div class="row"><div>EOR+ (decks={st.session_state.eor_decks})</div><div>{badge(metrics['eor'])} · w={w['eor']:.2f}</div></div>
+      <div class="row"><div>EOR-Bayes (decks={st.session_state.eor_decks})</div><div>{badge(metrics['eor'])} · w={w['eor']:.2f}</div></div>
       <div class="row"><div>Entropy</div><div>{badge(st.session_state.ai_entropy)}</div></div>
       <div class="row"><div><b>Hybrid 合成</b></div><div><b>{badge(hybrid)}</b></div></div>
       <div class="row"><div>方向</div><div><b>{'庄(B)' if direction=='B' else ('闲(P)' if direction=='P' else '观望')}</b></div></div>
@@ -866,7 +943,7 @@ def display_complete_interface():
 def main():
     with st.sidebar:
         st.markdown("## ⚙️ 控制台")
-        st.caption("动态优化AI权重，自适应市场环境；EOR+ 已启用；HOLD≤15% 限频。")
+        st.caption("EOR-Bayes 已启用；动态阈值；HOLD≤15% 限频；在线自学习。")
         add_system_status_panel()
 
     tab1, tab2, tab3, tab4 = st.tabs(["🎯 智能分析", "🛣️ 六路分析", "📊 专业统计", "📝 历史记录"])
