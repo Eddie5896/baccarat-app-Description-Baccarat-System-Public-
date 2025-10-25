@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Baccarat Master Ultimate - Precision 13.5 Ultimate · EOR Fusion 版
-# 界面优化版 - 删除批量输入，优化布局，添加扑克牌按钮
+# 移动端优化版 - 扑克牌按钮适配手机竖屏
 
 import streamlit as st
 import numpy as np
@@ -17,7 +17,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 现代化CSS样式
+# 现代化CSS样式 - 移动端优化
 st.markdown("""
 <style>
     /* 主色调：深蓝科技风 */
@@ -31,6 +31,76 @@ st.markdown("""
         background: linear-gradient(90deg, #00D4FF, #0099CC);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
+    }
+    
+    /* 移动端适配 */
+    @media (max-width: 768px) {
+        .main-header {
+            font-size: 1.8rem;
+        }
+        
+        .mobile-card-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 5px;
+            margin: 10px 0;
+        }
+        
+        .mobile-card-button {
+            background: linear-gradient(135deg, #1E293B, #334155);
+            border: 1px solid #475569;
+            border-radius: 6px;
+            padding: 8px 4px;
+            color: white;
+            font-weight: bold;
+            font-size: 12px;
+            text-align: center;
+            transition: all 0.2s ease;
+            min-height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .mobile-card-button:hover {
+            background: linear-gradient(135deg, #00D4FF, #0099CC);
+            transform: translateY(-1px);
+        }
+        
+        .mobile-input-section {
+            margin-bottom: 15px;
+        }
+    }
+    
+    /* 电脑端样式 */
+    @media (min-width: 769px) {
+        .mobile-card-grid {
+            display: grid;
+            grid-template-columns: repeat(13, 1fr);
+            gap: 8px;
+            margin: 10px 0;
+        }
+        
+        .mobile-card-button {
+            background: linear-gradient(135deg, #1E293B, #334155);
+            border: 1px solid #475569;
+            border-radius: 8px;
+            padding: 10px 6px;
+            color: white;
+            font-weight: bold;
+            font-size: 14px;
+            text-align: center;
+            transition: all 0.2s ease;
+            min-height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .mobile-card-button:hover {
+            background: linear-gradient(135deg, #00D4FF, #0099CC);
+            transform: translateY(-2px);
+        }
     }
     
     /* 卡片样式 */
@@ -53,26 +123,6 @@ st.markdown("""
         margin: 15px 0;
         text-align: center;
         box-shadow: 0 0 30px rgba(0, 212, 255, 0.3);
-    }
-    
-    /* 扑克牌按钮样式 */
-    .card-button {
-        background: linear-gradient(135deg, #1E293B, #334155);
-        border: 1px solid #475569;
-        border-radius: 8px;
-        padding: 10px;
-        margin: 4px;
-        color: white;
-        font-weight: bold;
-        width: 60px;
-        height: 50px;
-        transition: all 0.2s ease;
-    }
-    
-    .card-button:hover {
-        background: linear-gradient(135deg, #00D4FF, #0099CC);
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0, 212, 255, 0.4);
     }
     
     /* 输入区域样式 */
@@ -621,78 +671,118 @@ def handle_quick_input(quick_banker, quick_player):
     res='B' if quick_banker else 'P'
     record_game(res,['X','X'],['X','X'],'quick')
 
-# ========================== 扑克牌按钮输入功能 ==========================
+# ========================== 扑克牌按钮输入功能 - 移动端优化 ==========================
 def card_button_interface():
-    """显示扑克牌按钮选择界面"""
+    """显示扑克牌按钮选择界面 - 移动端优化"""
     st.markdown("### 🃏 扑克牌选择")
     
     # 定义扑克牌
     cards = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
     
     # 闲家牌输入区域
-    col1, col2 = st.columns(2)
+    st.markdown("#### 🔵 闲家牌")
+    player_input = st.text_input(
+        "闲家牌 (手动输入)", 
+        value=st.session_state.player_cards_input,
+        placeholder="例如: A10 或 552",
+        key="player_input"
+    )
+    st.session_state.player_cards_input = player_input
     
-    with col1:
-        st.markdown("#### 🔵 闲家牌")
-        player_input = st.text_input(
-            "闲家牌 (手动输入)", 
-            value=st.session_state.player_cards_input,
-            placeholder="例如: A10 或 552",
-            key="player_input"
-        )
-        st.session_state.player_cards_input = player_input
-        
-        # 闲家扑克牌按钮
-        st.markdown("**点击添加牌面:**")
-        cols = st.columns(4)
-        for i, card in enumerate(cards):
-            with cols[i % 4]:
-                if st.button(f"♠{card}", key=f"p_{card}"):
-                    st.session_state.player_cards_input += card
-                    st.rerun()
-        
-        # 闲家特殊功能按钮
-        col_p1, col_p2 = st.columns(2)
-        with col_p1:
-            if st.button("清空闲家", key="clear_player"):
-                st.session_state.player_cards_input = ""
-                st.rerun()
-        with col_p2:
-            if st.button("删除最后", key="backspace_player"):
-                if st.session_state.player_cards_input:
-                    st.session_state.player_cards_input = st.session_state.player_cards_input[:-1]
-                st.rerun()
+    # 闲家扑克牌按钮 - 移动端优化
+    st.markdown("**点击添加牌面:**")
     
-    with col2:
-        st.markdown("#### 🔴 庄家牌")
-        banker_input = st.text_input(
-            "庄家牌 (手动输入)", 
-            value=st.session_state.banker_cards_input,
-            placeholder="例如: 55 或 AJ",
-            key="banker_input"
-        )
-        st.session_state.banker_cards_input = banker_input
-        
-        # 庄家扑克牌按钮
-        st.markdown("**点击添加牌面:**")
-        cols = st.columns(4)
-        for i, card in enumerate(cards):
-            with cols[i % 4]:
-                if st.button(f"♥{card}", key=f"b_{card}"):
-                    st.session_state.banker_cards_input += card
-                    st.rerun()
-        
-        # 庄家特殊功能按钮
-        col_b1, col_b2 = st.columns(2)
-        with col_b1:
-            if st.button("清空庄家", key="clear_banker"):
-                st.session_state.banker_cards_input = ""
-                st.rerun()
-        with col_b2:
-            if st.button("删除最后", key="backspace_banker"):
-                if st.session_state.banker_cards_input:
-                    st.session_state.banker_cards_input = st.session_state.banker_cards_input[:-1]
-                st.rerun()
+    # 使用CSS网格布局显示扑克牌按钮
+    player_html = '<div class="mobile-card-grid">'
+    for card in cards:
+        player_html += f'''
+        <button class="mobile-card-button" onclick="addPlayerCard('{card}')">
+            ♠{card}
+        </button>
+        '''
+    player_html += '</div>'
+    
+    st.markdown(player_html, unsafe_allow_html=True)
+    
+    # 闲家特殊功能按钮
+    col_p1, col_p2 = st.columns(2)
+    with col_p1:
+        if st.button("清空闲家", key="clear_player", use_container_width=True):
+            st.session_state.player_cards_input = ""
+            st.rerun()
+    with col_p2:
+        if st.button("删除最后", key="backspace_player", use_container_width=True):
+            if st.session_state.player_cards_input:
+                st.session_state.player_cards_input = st.session_state.player_cards_input[:-1]
+            st.rerun()
+    
+    st.markdown("---")
+    
+    # 庄家牌输入区域
+    st.markdown("#### 🔴 庄家牌")
+    banker_input = st.text_input(
+        "庄家牌 (手动输入)", 
+        value=st.session_state.banker_cards_input,
+        placeholder="例如: 55 或 AJ",
+        key="banker_input"
+    )
+    st.session_state.banker_cards_input = banker_input
+    
+    # 庄家扑克牌按钮 - 移动端优化
+    st.markdown("**点击添加牌面:**")
+    
+    # 使用CSS网格布局显示扑克牌按钮
+    banker_html = '<div class="mobile-card-grid">'
+    for card in cards:
+        banker_html += f'''
+        <button class="mobile-card-button" onclick="addBankerCard('{card}')">
+            ♥{card}
+        </button>
+        '''
+    banker_html += '</div>'
+    
+    st.markdown(banker_html, unsafe_allow_html=True)
+    
+    # 庄家特殊功能按钮
+    col_b1, col_b2 = st.columns(2)
+    with col_b1:
+        if st.button("清空庄家", key="clear_banker", use_container_width=True):
+            st.session_state.banker_cards_input = ""
+            st.rerun()
+    with col_b2:
+        if st.button("删除最后", key="backspace_banker", use_container_width=True):
+            if st.session_state.banker_cards_input:
+                st.session_state.banker_cards_input = st.session_state.banker_cards_input[:-1]
+            st.rerun()
+    
+    # 添加JavaScript函数处理按钮点击
+    st.markdown("""
+    <script>
+    function addPlayerCard(card) {
+        // 这里需要与Streamlit通信来更新状态
+        // 由于Streamlit的限制，我们使用URL参数的方式
+        window.location.href = window.location.href.split('?')[0] + '?add_player_card=' + card;
+    }
+    
+    function addBankerCard(card) {
+        window.location.href = window.location.href.split('?')[0] + '?add_banker_card=' + card;
+    }
+    </script>
+    """, unsafe_allow_html=True)
+    
+    # 处理URL参数
+    query_params = st.experimental_get_query_params()
+    if 'add_player_card' in query_params:
+        card = query_params['add_player_card'][0]
+        st.session_state.player_cards_input += card
+        st.experimental_set_query_params()
+        st.rerun()
+    
+    if 'add_banker_card' in query_params:
+        card = query_params['add_banker_card'][0]
+        st.session_state.banker_cards_input += card
+        st.experimental_set_query_params()
+        st.rerun()
     
     return player_input, banker_input
 
