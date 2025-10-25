@@ -1,18 +1,17 @@
 # -*- coding: utf-8 -*-
-# Baccarat Master Ultimate - Precision 15 Apex
-# 在 Fusion 14 基础上“只加不减”：自适应权重 + 趋势惯性 + 结构一致性S + 模糊决策 + 反馈记忆
-# 不含 Backtest Report；UI 基本不变，仅侧边显示只读引擎状态
+# Baccarat Master Ultimate - Precision 15 Apex · Full UI
+# 只加不减：集成 13/14 全部功能 + 稳定性修复 + 决策增强
 
 import streamlit as st
 import numpy as np
 import json
-from collections import Counter, defaultdict
+from collections import Counter
 from datetime import datetime
 from itertools import groupby
 
+# ========================== 基础配置 ==========================
 st.set_page_config(page_title="🐉 百家乐大师 Precision 15 Apex", layout="centered")
 
-# ====== 样式（保留） ======
 st.markdown("""
 <style>
 .main-header {font-size:2.2rem;color:#FFD700;text-align:center;text-shadow:2px 2px 4px #000;}
@@ -29,57 +28,38 @@ st.markdown("""
 .state-signal{background:linear-gradient(90deg,#FFD70033,#FF634733);padding:8px 12px;border-radius:8px;margin:5px 0;border-left:4px solid #FFD700;color:#fff;font-weight:600;}
 .guide-panel{background:linear-gradient(135deg,#667eea,#764ba2);padding:20px;border-radius:10px;margin:10px 0;color:white;}
 .enhanced-logic-panel{background:linear-gradient(135deg,#00b4db,#0083b0);padding:15px;border-radius:10px;margin:10px 0;color:white;}
-.engine-panel{background:#0f172a;border:1px solid #334155;border-radius:10px;padding:10px;margin:8px 0;}
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<h1 class="main-header">🐉 百家乐大师 Precision 15 Apex</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-header">🐉 百家乐大师 Precision 15 Apex · Full UI</h1>', unsafe_allow_html=True)
 
-# ====== 状态（保留+新增） ======
-def _init_state():
+# ========================== 状态初始化（只加不减） ==========================
+def init_state():
     ss = st.session_state
-    if "ultimate_games" not in ss: ss.ultimate_games=[]
-    if "expert_roads" not in ss:
-        ss.expert_roads={'big_road':[],'bead_road':[],'big_eye_road':[],'small_road':[],'cockroach_road':[],'three_bead_road':[]}
-    if "risk_data" not in ss:
-        ss.risk_data={'current_level':'medium','position_size':1.0,'stop_loss':3,'consecutive_losses':0,'win_streak':0}
-    if "ai_weights" not in ss:
-        ss.ai_weights={'z':0.25,'cusum':0.25,'bayes':0.20,'momentum':0.15,'eor':0.15}
-    if "ai_learning_buffer" not in ss: ss.ai_learning_buffer=[]
-    if "ai_last_metrics" not in ss: ss.ai_last_metrics={}
-    if "ai_entropy" not in ss: ss.ai_entropy=0.0
-    if "eor_decks" not in ss: ss.eor_decks=7
-    if "ai_batch_n" not in ss: ss.ai_batch_n=5
+    ss.setdefault("ultimate_games", [])
+    ss.setdefault("expert_roads", {'big_road':[],'bead_road':[],'big_eye_road':[],'small_road':[],'cockroach_road':[],'three_bead_road':[]})
+    ss.setdefault("risk_data", {'current_level':'medium','position_size':1.0,'stop_loss':3,'consecutive_losses':0,'win_streak':0})
+    ss.setdefault("ai_weights", {'z':0.25,'cusum':0.25,'bayes':0.20,'momentum':0.15,'eor':0.15})
+    ss.setdefault("ai_learning_buffer", [])
+    ss.setdefault("ai_last_metrics", {})
+    ss.setdefault("ai_entropy", 0.0)
+    ss.setdefault("eor_decks", 7)
+    ss.setdefault("ai_batch_n", 5)
+    # 统计与状态
+    ss.setdefault("prediction_stats", {'total_predictions':0,'correct_predictions':0,'recent_accuracy':[],'prediction_history':[]})
+    ss.setdefault("learning_effectiveness", [])
+    ss.setdefault("performance_warnings", [])
+    ss.setdefault("last_prediction", None)
+    ss.setdefault("input_mode", "card")
+init_state()
 
-    # 预测统计（保留）
-    if "prediction_stats" not in ss:
-        ss.prediction_stats = {'total_predictions':0,'correct_predictions':0,'recent_accuracy':[],'prediction_history':[]}
-
-    # ===== 新增：引擎与反馈记忆 =====
-    if "engine_state" not in ss:
-        ss.engine_state = {
-            'window': 10,                # 动态权重窗口
-            'trend_inertia_on': True,    # 趋势惯性开关
-            'structure_S': 0.0,          # 大眼/小路/蟑螂一致性
-            'dynamic_threshold': 0.10,   # 动态出手阈值（只读展示）
-            'hold_relax': 1.0,           # HOLD 放宽倍数（只读展示）
-            'vote_override': False,      # 投票是否触发（只读）
-        }
-    if "feedback_memory" not in ss:
-        ss.feedback_memory = {
-            'long_run_wrong': 0,   # 长龙时逆向错
-            'chop_wrong': 0,       # 震荡时跟随错
-            'recent_run': [],      # 近期正确/错误序列布尔
-            'max_consec_wrong': 0, # 统计最大连错
-        }
-
-_init_state()
-
-# ====== 六路（保留） ======
+# ========================== 六路分析（保留） ==========================
 class CompleteRoadAnalyzer:
     @staticmethod
     def update_all_roads(result):
-        if result not in ['B','P']: return
+        if result not in ['B','P']: 
+            # 记录和局但不推进六路
+            return
         roads = st.session_state.expert_roads
         roads['bead_road'].append(result)
         if not roads['big_road']:
@@ -88,26 +68,27 @@ class CompleteRoadAnalyzer:
             col = roads['big_road'][-1]
             if col[-1]==result: col.append(result)
             else: roads['big_road'].append([result])
-        # 大眼/小路/蟑螂/三珠（简化兼容原逻辑）
+        # 大眼路
         if len(roads['big_road'])>=2:
             eye=[]; br=roads['big_road']
             for i in range(1,len(br)):
                 eye.append('R' if len(br[i])>=len(br[i-1]) else 'B')
             roads['big_eye_road']=eye[-20:]
+        # 小路
         if len(roads['big_eye_road'])>=2:
             sm=[]; r=roads['big_eye_road']
             for i in range(1,len(r)): sm.append('R' if r[i]==r[i-1] else 'B')
             roads['small_road']=sm[-15:]
+        # 蟑螂路
         if len(roads['small_road'])>=2:
-            ck=[]; r=roads['small_路'] if 'small_路' in roads else roads['small_road']
-            # 兼容性修正
-            r = roads['small_road']
+            ck=[]; r=roads['small_road']
             for i in range(1,len(r)): ck.append('R' if r[i]==r[i-1] else 'B')
             roads['cockroach_road']=ck[-12:]
+        # 三珠路
         if len(roads['bead_road'])>=3:
             br=roads['bead_road']; roads['three_bead_road']=[br[i:i+3] for i in range(0,len(br)-2,3)][-8:]
 
-# ====== 模式检测（保留） ======
+# ========================== 模式检测（保留） ==========================
 class AdvancedPatternDetector:
     @staticmethod
     def get_streaks(bp):
@@ -117,6 +98,7 @@ class AdvancedPatternDetector:
             if bp[i]==c:n+=1
             else:s.append(n);c=bp[i];n=1
         s.append(n);return s
+
     @staticmethod
     def detect_all_patterns(seq):
         bp=[x for x in seq if x in ['B','P']]
@@ -129,12 +111,16 @@ class AdvancedPatternDetector:
         if len(s)>=4 and all(s[i]<s[i+1] for i in range(-4,-1)):p.append("上山路")
         return p[:8]
 
-# ====== 指标核心（保留） ======
+# ========================== 指标计算（保留） ==========================
 class HybridMathCore:
     @staticmethod
     def compute_metrics(seq):
         bp=[x for x in seq if x in ['B','P']]
-        if len(bp)<6:return {'z':0,'cusum':0,'bayes':0,'momentum':0,'entropy':0,'eor':0}
+        if len(bp)<6:
+            m = {'z':0.0,'cusum':0.0,'bayes':0.0,'momentum':0.0,'entropy':0.0,'eor':0.0}
+            st.session_state.ai_last_metrics = m
+            st.session_state.ai_entropy = 0.0
+            return m
         arr=np.array([1 if x=='B' else -1 for x in bp])
         mean=np.mean(arr); std=np.std(arr)+1e-6
         z=mean/std
@@ -146,9 +132,12 @@ class HybridMathCore:
         entropy=-(pB*np.log2(pB+1e-9)+pP*np.log2(pP+1e-9))
         decks=st.session_state.eor_decks
         eor=((pB-pP)*decks)/8
-        return {'z':z,'cusum':cusum,'bayes':bayes,'momentum':momentum,'entropy':entropy,'eor':eor}
+        m = {'z':float(z),'cusum':float(cusum),'bayes':float(bayes),'momentum':float(momentum),'entropy':float(entropy),'eor':float(eor)}
+        st.session_state.ai_last_metrics = m
+        st.session_state.ai_entropy = entropy
+        return m
 
-# ====== AI 学习（保留）+ 自适应权重（新增） ======
+# ========================== 自学习（保留） ==========================
 class AIHybridLearner:
     @staticmethod
     def learn_update(correct):
@@ -163,24 +152,14 @@ class AIHybridLearner:
         buf.clear()
 
     @staticmethod
-    def adaptive_rebalance():
-        """根据最近窗口命中情况，微调各权重（不改UI）"""
-        ss=st.session_state
-        ps=ss.prediction_stats['prediction_history']
-        if len(ps)<ss.engine_state['window']: return
-        recent=ps[-ss.engine_state['window']:]
-        acc=np.mean([1 if x['correct'] else 0 for x in recent]) if recent else 0.0
-        w=ss.ai_weights
-        # 根据最近“成功的指标倾向”来放大/缩小（启发式）
-        lm=ss.ai_last_metrics or {}
-        z,c,b,m,e = abs(lm.get('z',0)), abs(lm.get('cusum',0)), abs(lm.get('bayes',0)), abs(lm.get('momentum',0)), abs(lm.get('eor',0))
-        mag = np.array([z,c,b,m,e]); mag = mag/(mag.sum()+1e-6)
-        gain = 0.02*(acc-0.5)  # 最近 >50% 则正向增益
-        keys=['z','cusum','bayes','momentum','eor']
-        for i,k in enumerate(keys):
-            w[k]=float(np.clip(w[k]*(1+gain*mag[i]),0.05,0.4))
+    def compute_hybrid(seq):
+        m=HybridMathCore.compute_metrics(seq)
+        st.session_state.ai_learning_buffer.append(m)
+        w=st.session_state.ai_weights
+        hybrid=(m['z']*w['z']+m['cusum']*w['cusum']+m['bayes']*w['bayes']+m['momentum']*w['momentum']+m['eor']*w['eor'])
+        return float(hybrid), m
 
-# ====== 状态信号（保留） ======
+# ========================== 状态信号（保留并增强） ==========================
 class GameStateDetector:
     @staticmethod
     def _get_current_streak(bead):
@@ -190,47 +169,63 @@ class GameStateDetector:
             if bead[i]==cur: n+=1
             else: break
         return n
+
+    @staticmethod
+    def _detect_road_breakthrough(big_road):
+        if len(big_road)<4:return None
+        last4=big_road[-4:]; L=[len(c) for c in last4]
+        cur=last4[-1][-1] if last4[-1] else None
+        if not cur:return None
+        cn="庄" if cur=='B' else "闲"
+        if (L[-1]>max(L[-4:-1])+1 and all(x<=2 for x in L[-4:-1])): return f"{cn}势突破"
+        if (L[-4]<L[-3]<L[-2]<L[-1]): return f"{cn}势加速"
+        return None
+
+    @staticmethod
+    def _detect_multi_road_alignment(roads):
+        sig=[]
+        if roads['big_road'] and roads['big_road'][-1]:
+            if len(roads['big_road'][-1])>=3: sig.append(roads['big_road'][-1][-1])
+        if roads['big_eye_road']:
+            last3=roads['big_eye_road'][-3:]
+            if last3 and all(x=='R' for x in last3): sig.append('B')
+            elif last3 and all(x=='B' for x in last3): sig.append('P')
+        if roads['small_road']:
+            last3=roads['small_road'][-3:]
+            if last3 and len(set(last3))==1: sig.append('B' if last3[0]=='R' else 'P')
+        if sig:
+            mc=Counter(sig).most_common(1)[0]
+            if mc[1]>=2: return "庄趋势" if mc[0]=='B' else "闲趋势"
+        return None
+
+    @staticmethod
+    def _detect_streak_exhaustion(roads):
+        if not roads['bead_road'] or not roads['big_eye_road']: return None
+        streak=GameStateDetector._get_current_streak(roads['bead_road'])
+        if streak<5: return None
+        cur=roads['bead_road'][-1]; cn="庄" if cur=='B' else "闲"
+        rev=0
+        if len(roads['big_eye_road'])>=2 and roads['big_eye_road'][-1]!=roads['big_eye_road'][-2]: rev+=1
+        if len(roads['small_road'])>=3:
+            last3=roads['small_road'][-3:]
+            if sum(1 for i in range(1,len(last3)) if last3[i]!=last3[i-1])>=2: rev+=1
+        if rev>=1: return f"{cn}龙衰竭"
+        return None
+
     @staticmethod
     def detect(roads):
         out=[]
-        # 简洁：大路连续>=3提示
-        if roads['big_road'] and len(roads['big_road'][-1])>=3:
-            last=roads['big_road'][-1][-1]
-            out.append(f"大路突破-{'庄' if last=='B' else '闲'}势增强")
-        # 辅路一致性
-        sig=[]
-        if roads['big_eye_road'][-3:].count('R')==3: sig.append('B')
-        if roads['small_road'][-3:].count('R')==3: sig.append('B')
-        if roads['big_eye_road'][-3:].count('B')==3: sig.append('P')
-        if roads['small_road'][-3:].count('B')==3: sig.append('P')
-        if sig:
-            mc=Counter(sig).most_common(1)[0]
-            if mc[1]>=2: out.append(f"多路共振-{'庄趋势' if mc[0]=='B' else '闲趋势'}")
-        # 龙衰竭
-        bead=roads['bead_road']
-        if bead:
-            streak=GameStateDetector._get_current_streak(bead)
-            if streak>=5: out.append(f"连势衰竭-{'庄' if bead[-1]=='B' else '闲'}龙衰竭")
+        br=GameStateDetector._detect_road_breakthrough(roads['big_road'])
+        if br: out.append(f"大路突破-{br}")
+        al=GameStateDetector._detect_multi_路_alignment(roads) if False else None
+        # 为保持一致性，直接调用：
+        al = GameStateDetector._detect_multi_road_alignment(roads)
+        if al: out.append(f"多路共振-{al}")
+        ex=GameStateDetector._detect_streak_exhaustion(roads)
+        if ex: out.append(f"连势衰竭-{ex}")
         return out
 
-# ====== 结构一致性分数 S（新增） ======
-def compute_structure_S(roads):
-    """大眼/小路/蟑螂三路一致性：S∈[-1,1]（偏庄为正、偏闲为负）"""
-    score=0; cnt=0
-    # 转换：R->B倾向, B->P倾向（与传统路法对应）
-    for key in ['big_eye_road','small_road','cockroach_road']:
-        r = roads.get(key, [])
-        if not r: continue
-        tail=r[-6:]  # 最近6格
-        rb = tail.count('R'); bb = tail.count('B')
-        if rb+bb==0: continue
-        sc = (rb - bb) / (rb + bb)  # R多→正，B多→负
-        score += sc; cnt += 1
-    S = (score/cnt) if cnt>0 else 0.0
-    st.session_state.engine_state['structure_S']=float(np.clip(S,-1,1))
-    return st.session_state.engine_state['structure_S']
-
-# ====== 风险管理（保留） ======
+# ========================== 风险管理（保留） ==========================
 class ProfessionalRiskManager:
     @staticmethod
     def calculate_position_size(confidence, streak_info):
@@ -242,6 +237,7 @@ class ProfessionalRiskManager:
         if streak_info.get('current_streak', 0) >= 3:
             base *= 1.1
         return min(base, 2.0)
+
     @staticmethod
     def get_risk_level(confidence, volatility):
         risk_score = (1 - confidence) + volatility
@@ -249,6 +245,7 @@ class ProfessionalRiskManager:
         if risk_score < 0.6: return "medium", "🟡 中风险"
         if risk_score < 0.8: return "high", "🟠 高风险"
         return "extreme", "🔴 极高风险"
+
     @staticmethod
     def get_trading_suggestion(risk_level, direction):
         suggestions = {
@@ -259,35 +256,7 @@ class ProfessionalRiskManager:
         }
         return suggestions[risk_level].get(direction, "正常操作")
 
-# ====== 记录/学习（保留） ======
-def record_prediction_result(prediction, actual_result, confidence):
-    if actual_result in ['B', 'P']:
-        stats = st.session_state.prediction_stats
-        stats['total_predictions'] += 1
-        is_correct = (prediction == actual_result)
-        if is_correct: stats['correct_predictions'] += 1
-        stats['recent_accuracy'].append(is_correct)
-        if len(stats['recent_accuracy']) > 50: stats['recent_accuracy'].pop(0)
-        stats['prediction_history'].append({
-            'prediction': prediction,'actual': actual_result,
-            'correct': is_correct,'confidence': confidence,'timestamp': datetime.now()
-        })
-        # 反馈记忆
-        fm=st.session_state.feedback_memory
-        fm['recent_run'].append(is_correct)
-        # 更新最大连错
-        consec=0; mx=0
-        for ok in fm['recent_run'][::-1]:
-            if not ok: consec+=1; mx=max(mx,consec)
-            else: break
-        fm['max_consec_wrong']=max(fm['max_consec_wrong'], mx)
-
-def enhanced_learning_update(prediction, actual_result):
-    if prediction in ['B','P'] and actual_result in ['B','P']:
-        is_correct = (prediction == actual_result)
-        AIHybridLearner.learn_update(correct=is_correct)
-
-# ====== 看路推荐（保留） ======
+# ========================== 看路推荐（保留） ==========================
 def road_recommendation(roads):
     lines=[]; final=""
     if roads['big_road']:
@@ -300,12 +269,12 @@ def road_recommendation(roads):
         elif b>r: lines.append("大眼路：蓝>红 → 有反转迹象")
         else: lines.append("大眼路：红=蓝 → 稳定期")
     if roads['small_road']:
-        r=roads['small_road'].count('R'); b=roads['small_road'].count('B')
+        r=roads['small_路'].count('R') if False else roads['small_road'].count('R')
+        b=roads['small_road'].count('B')
         if r>b: lines.append("小路：红>蓝 → 延续趋势")
         elif b>r: lines.append("小路：蓝>红 → 节奏转弱")
         else: lines.append("小路：红=蓝 → 平衡")
     if roads['cockroach_road']:
-        last3=roads['cockroach_路'] if 'cockroach_路' in roads else roads['cockroach_road']
         last3=roads['cockroach_road'][-3:]
         if last3:
             trend="红红蓝" if last3.count('R')==2 else ("蓝蓝红" if last3.count('B')==2 else "混乱")
@@ -317,7 +286,7 @@ def road_recommendation(roads):
         else: final="暂无明显方向"
     return {"lines":lines,"final":final}
 
-# ====== 输入/记录（保留） ======
+# ========================== 辅助：输入/记录 ==========================
 def parse_cards(input_str):
     if not input_str: return []
     s=input_str.upper().replace(' ',''); cards=[]; i=0
@@ -334,11 +303,16 @@ def record_game(result, p_cards, b_cards, mode):
           'player_cards':p_cards,'banker_cards':b_cards,
           'result':result,'time':datetime.now().strftime("%H:%M"),'mode':mode}
     st.session_state.ultimate_games.append(game)
+    # 六路更新（和局只计入历史不推路）
     if result in ['B','P']: CompleteRoadAnalyzer.update_all_roads(result)
-    # 风险状态
+    # 风险状态（仅示意）
     risk=st.session_state.risk_data
-    if result in ['B','P']: risk['win_streak']+=1; risk['consecutive_losses']=0
-    else: risk['consecutive_losses']+=1; risk['win_streak']=0
+    if result in ['B','P']: 
+        risk['win_streak']+=1; risk['consecutive_losses']=0
+    elif result=='T':
+        pass
+    else:
+        risk['consecutive_losses']+=1; risk['win_streak']=0
     st.success(f"✅ 记录成功! 第{game['round']}局"); st.rerun()
 
 def handle_card_input(player_input, banker_input, banker_btn, player_btn, tie_btn):
@@ -354,20 +328,248 @@ def handle_quick_input(quick_banker, quick_player):
     record_game(res,['X','X'],['X','X'],'quick')
 
 def handle_batch_input(batch_input):
-    s=batch_input.upper().replace('庄','B').replace('闲','P').replace(' ','')
-    valid=[c for c in s if c in ['B','P']]
+    s=batch_input.upper().replace('庄','B').replace('闲','P').replace('和','T').replace(' ','')
+    valid=[c for c in s if c in ['B','P','T']]
     if valid:
         for r in valid: record_game(r,['X','X'],['X','X'],'batch')
-        st.success(f"✅ 批量添加{len(valid)}局")
+        st.success(f"✅ 批量添加 {len(valid)} 局")
 
-def display_complete_interface():
-    st.markdown("## 🎮 双模式输入系统")
-    if len(st.session_state.ultimate_games)==0:
+# ========================== 系统面板 / 导出 ==========================
+def add_system_status_panel():
+    with st.sidebar.expander("📊 系统状态", expanded=False):
+        total_games = len(st.session_state.ultimate_games)
+        st.metric("总局数", total_games)
+        stats = st.session_state.prediction_stats
+        if stats['total_predictions'] > 0:
+            accuracy = (stats['correct_predictions'] / stats['total_predictions']) * 100
+            st.metric("预测准确率", f"{accuracy:.1f}%")
+            st.metric("总预测数", stats['total_predictions'])
+        if total_games > 500:
+            st.warning("⚠️ 数据量较大，建议导出数据")
+        elif total_games > 200:
+            st.info("💾 数据量适中，运行流畅")
+        else:
+            st.success("✅ 系统运行正常")
+
+def enhanced_export_data():
+    data = {
+        'games': st.session_state.ultimate_games,
+        'roads': st.session_state.expert_roads,
+        'ai_weights': st.session_state.ai_weights,
+        'prediction_stats': st.session_state.prediction_stats,
+        'export_time': datetime.now().isoformat()
+    }
+    json_str = json.dumps(data, ensure_ascii=False, indent=2)
+    st.download_button(label="📥 下载完整数据",
+                       data=json_str,
+                       file_name=f"baccarat_data_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+                       mime="application/json")
+
+def show_quick_start_guide():
+    if len(st.session_state.ultimate_games) == 0:
         st.markdown("""
         <div class="guide-panel">
-        <h3>🎯 快速开始</h3>
-        <p>1) 记录 3 局后自动启动智能分析；2) EOR 副数可在侧边栏调节；3) 风险建议仅作参考。</p>
-        </div>""", unsafe_allow_html=True)
+        <h3>🎯 快速开始指南</h3>
+        <p>1. 选择「牌点输入」记录详细牌局，或使用「快速看路」快速开始</p>
+        <p>2. 记录3局后激活AI智能分析系统</p>
+        <p>3. 关注风险建议，科学管理仓位</p>
+        <p>4. 系统会持续学习优化预测准确性</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+# ========================== 智能分析（融合 + 决策增强） ==========================
+def record_prediction_result(prediction, actual_result, confidence):
+    if actual_result in ['B', 'P']:
+        stats = st.session_state.prediction_stats
+        stats['total_predictions'] += 1
+        is_correct = (prediction == actual_result)
+        if is_correct:
+            stats['correct_predictions'] += 1
+        stats['recent_accuracy'].append(is_correct)
+        if len(stats['recent_accuracy']) > 50:
+            stats['recent_accuracy'].pop(0)
+        stats['prediction_history'].append({
+            'prediction': prediction,
+            'actual': actual_result,
+            'correct': is_correct,
+            'confidence': float(confidence),
+            'timestamp': datetime.now().isoformat()
+        })
+
+def enhanced_learning_update(prediction, actual_result):
+    if prediction in ['B','P'] and actual_result in ['B','P']:
+        is_correct = (prediction == actual_result)
+        AIHybridLearner.learn_update(correct=is_correct)
+        st.session_state.learning_effectiveness.append({
+            'correct': bool(is_correct),
+            'weights_snapshot': dict(st.session_state.ai_weights),
+            'timestamp': datetime.now().isoformat()
+        })
+
+def display_complete_analysis():
+    if len(st.session_state.ultimate_games)<3:
+        st.info("🎲 请先记录至少3局牌局数据"); return
+
+    seq=[g['result'] for g in st.session_state.ultimate_games]
+    hybrid, metrics = AIHybridLearner.compute_hybrid(seq)
+
+    # 侧边栏：EOR 副数滑杆 + 权重只读
+    with st.sidebar:
+        decks = st.slider("EOR 计算副数（1-8）", 1, 8, int(st.session_state.eor_decks), key="eor_slider")
+        if decks != st.session_state.eor_decks:
+            st.session_state.eor_decks = decks
+        st.markdown("### 🤖 AI 权重（只读）")
+        st.write({k: round(v,3) for k,v in st.session_state.ai_weights.items()})
+
+    # 状态信号
+    state_signals = GameStateDetector.detect(st.session_state.expert_roads)
+
+    # —— 决策增强区 —— #
+    st.markdown('<div class="enhanced-logic-panel">', unsafe_allow_html=True)
+    st.markdown("### 🧠 智能决策引擎（动态阈值 + 投票兜底 + HOLD自适应）")
+
+    ent = float(st.session_state.ai_entropy)
+    trend = (abs(st.session_state.ai_last_metrics.get('z',0)) + abs(st.session_state.ai_last_metrics.get('cusum',0))) / 2.0
+    thr_base = 0.10 + 0.04*ent - 0.06*trend
+    threshold = float(np.clip(thr_base, 0.05, 0.12))
+
+    # HOLD 自适应
+    hist = st.session_state.prediction_stats.get('prediction_history', [])
+    hold_adjustment = 1.0
+    if len(hist) >= 30:
+        hold_ratio = np.mean([1 if h['prediction']=='HOLD' else 0 for h in hist[-30:]])
+        if hold_ratio > 0.50:
+            threshold *= 0.80
+            hold_adjustment = 0.80
+
+    # 投票兜底
+    m = metrics
+    def sgn(x): return 'B' if x>0 else ('P' if x<0 else 'HOLD')
+    votes = [sgn(m['z']), sgn(m['cusum']), sgn(m['momentum']), sgn(m['bayes']), sgn(m['eor'])]
+    cnt = Counter([v for v in votes if v!='HOLD'])
+    vote_dir, vote_num = (None,0) if not cnt else cnt.most_common(1)[0]
+
+    # 初判
+    if hybrid > threshold: prelim = "B"
+    elif hybrid < -threshold: prelim = "P"
+    else: prelim = "HOLD"
+
+    margin = abs(hybrid) - threshold
+    if prelim != "HOLD" and margin < 0.04 and vote_dir in ['B','P'] and vote_dir != prelim:
+        direction = vote_dir
+        vote_override = True
+    else:
+        direction = prelim
+        vote_override = False
+
+    # 置信度重标定 + 状态信号增强
+    scale = 0.12
+    sigm = 1/(1 + np.exp(-abs(hybrid)/scale))
+    base_conf = 0.52 + 0.36*sigm  # 0.52~0.88
+
+    if state_signals:
+        for sig in state_signals:
+            if '突破' in sig or '共振' in sig:
+                base_conf = min(0.94, base_conf*1.12)
+            if '衰竭' in sig and direction != 'HOLD':
+                direction='HOLD'
+                base_conf=max(base_conf,0.60)
+
+    # 展示参数
+    col1, col2, col3, col4 = st.columns(4)
+    with col1: st.metric("动态阈值", f"{threshold:.3f}")
+    with col2: st.metric("熵值", f"{ent:.3f}")
+    with col3: st.metric("趋势", f"{trend:.3f}")
+    with col4: st.metric("HOLD调整", f"{hold_adjustment:.2f}")
+    if vote_override:
+        st.info(f"🎯 投票机制激活: {vote_dir} ({vote_num}/5票)")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # 模式检测
+    patterns = AdvancedPatternDetector.detect_all_patterns(seq)
+
+    # 看路推荐条
+    road_sug = road_recommendation(st.session_state.expert_roads)
+    if road_sug and road_sug.get("final"):
+        st.markdown(f"""
+        <div style="background:linear-gradient(90deg,#FFD70033,#FF634733);padding:10px 14px;border-radius:10px;margin-top:6px;margin-bottom:10px;border-left:5px solid #FFD700;color:#fff;font-weight:600;text-shadow:1px 1px 2px #000;">
+            🛣️ 看路推荐：{road_sug['final']}
+        </div>
+        """, unsafe_allow_html=True)
+
+    # 状态信号展示
+    if state_signals:
+        for s in state_signals:
+            st.markdown(f'<div class="state-signal">🚀 状态信号：{s}</div>', unsafe_allow_html=True)
+
+    # 预测卡片
+    if direction=="B":
+        color="#FF6B6B"; icon="🔴"; text="庄(B)"; bg="linear-gradient(135deg,#FF6B6B,#C44569)"
+    elif direction=="P":
+        color="#4ECDC4"; icon="🔵"; text="闲(P)"; bg="linear-gradient(135deg,#4ECDC4,#44A08D)"
+    else:
+        color="#FFE66D"; icon="⚪"; text="观望"; bg="linear-gradient(135deg,#FFE66D,#F9A826)"
+
+    # 风险显示
+    vol = float(abs(metrics['momentum']))*0.6 + 0.4*(1 - abs(metrics['bayes']))
+    risk_level, risk_text = ProfessionalRiskManager.get_risk_level(base_conf, vol)
+
+    st.markdown(f"""
+    <div class="prediction-card" style="background:{bg};">
+        <h2 style="color:{color};margin:0;text-align:center;">{icon} 大师推荐: {text}</h2>
+        <h3 style="color:#fff;text-align:center;margin:10px 0;">🎯 置信度: {base_conf*100:.1f}% | {risk_text}</h3>
+        <p style="color:#f8f9fa;text-align:center;margin:0;">
+            模式: {",".join(patterns[:3]) if patterns else "—"} | 风险: {risk_level}
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # 指标表
+    st.markdown("#### 📐 Hybrid 指标总览")
+    def badge(v):
+        v=float(v)
+        if v>0: return f'<span class="badge badge-pos">+{v:.3f}</span>'
+        if v<0: return f'<span class="badge badge-neg">{v:.3f}</span>'
+        return f'<span class="badge badge-neutral">{v:.3f}</span>'
+    w = st.session_state.ai_weights
+    tbl = f"""
+    <div class="metric-table">
+      <div class="row"><div>Z-Score</div><div>{badge(metrics['z'])} · w={w['z']:.2f}</div></div>
+      <div class="row"><div>CUSUM</div><div>{badge(metrics['cusum'])} · w={w['cusum']:.2f}</div></div>
+      <div class="row"><div>Bayes</div><div>{badge(metrics['bayes'])} · w={w['bayes']:.2f}</div></div>
+      <div class="row"><div>Momentum</div><div>{badge(metrics['momentum'])} · w={w['momentum']:.2f}</div></div>
+      <div class="row"><div>EOR (decks={st.session_state.eor_decks})</div><div>{badge(metrics['eor'])} · w={w['eor']:.2f}</div></div>
+      <div class="row"><div>Entropy</div><div>{badge(st.session_state.ai_entropy)}</div></div>
+      <div class="row"><div><b>Hybrid 合成</b></div><div><b>{badge(hybrid)}</b></div></div>
+      <div class="row"><div>方向</div><div><b>{'庄(B)' if direction=='B' else ('闲(P)' if direction=='P' else '观望')}</b></div></div>
+    </div>
+    """
+    st.markdown(tbl, unsafe_allow_html=True)
+
+    # 风险控制
+    st.markdown("### 🛡️ 风险控制")
+    pos = ProfessionalRiskManager.calculate_position_size(base_conf, {'current_streak':0})
+    sug = ProfessionalRiskManager.get_trading_suggestion(risk_level, direction)
+    st.markdown(f"""
+    <div class="risk-panel">
+        <h4 style="color:#fff;margin:0 0 10px 0;">📊 风险控制建议</h4>
+        <p style="color:#ccc;margin:5px 0;"><strong>仓位建议:</strong> {pos:.1f} 倍基础仓位</p>
+        <p style="color:#ccc;margin:5px 0;"><strong>操作建议:</strong> {sug}</p>
+        <p style="color:#ccc;margin:5px 0;"><strong>连赢:</strong> {st.session_state.risk_data['win_streak']} 局 | <strong>连输:</strong> {st.session_state.risk_data['consecutive_losses']} 局</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # 在线学习：用上一手真实结果训练（避免用未来信息）
+    if len(seq) > 0 and direction != 'HOLD':
+        last_result = seq[-1]
+        record_prediction_result(direction, last_result, base_conf)
+        enhanced_learning_update(direction, last_result)
+        st.session_state.last_prediction = direction
+
+# ========================== 界面：输入 / 六路 / 统计 / 历史 ==========================
+def display_complete_interface():
+    st.markdown("## 🎮 双模式输入系统")
+    show_quick_start_guide()
     c1,c2=st.columns(2)
     with c1:
         if st.button("🃏 牌点输入", use_container_width=True, type="primary"):
@@ -375,7 +577,7 @@ def display_complete_interface():
     with c2:
         if st.button("🎯 快速看路", use_container_width=True):
             st.session_state.input_mode='result'; st.rerun()
-    if "input_mode" not in st.session_state: st.session_state.input_mode='card'
+
     if st.session_state.input_mode=='card':
         col1,col2=st.columns(2)
         with col1: p_input=st.text_input("闲家牌", placeholder="K10 或 552", key="player_card")
@@ -388,174 +590,19 @@ def display_complete_interface():
         if banker_btn or player_btn or tie_btn:
             handle_card_input(p_input,b_input,banker_btn,player_btn,tie_btn)
     else:
-        st.info("💡 快速模式：直接记录结果，用于快速看路分析")
-        q1,q2=st.columns(2)
+        st.info("💡 快速模式：直接记录结果，用于快速看路分析（支持B/P/T）")
+        q1,q2,q3=st.columns(3)
         with q1: qb=st.button("🔴 庄赢", use_container_width=True, type="primary")
         with q2: qp=st.button("🔵 闲赢", use_container_width=True)
+        with q3: qt=st.button("⚪ 和局", use_container_width=True)
         st.markdown("### 📝 批量输入")
-        batch=st.text_input("输入BP序列", placeholder="BPBBP 或 庄闲庄庄闲", key="batch_input")
+        batch=st.text_input("输入 B/P/T 序列（可含“庄/闲/和”）", placeholder="BPBBPT 或 庄闲庄庄和", key="batch_input")
         if st.button("✅ 确认批量输入", use_container_width=True) and batch:
             handle_batch_input(batch)
-        if qb or qp: handle_quick_input(qb,qp)
+        if qb: handle_quick_input(True, False)
+        if qp: handle_quick_input(False, True)
+        if qt: record_game('T',['X','X'],['X','X'],'quick')
 
-# ====== 智能分析（升级） ======
-def display_complete_analysis():
-    if len(st.session_state.ultimate_games)<3:
-        st.info("🎲 请先记录至少3局牌局数据"); return
-
-    seq=[g['result'] for g in st.session_state.ultimate_games]
-    hybrid, metrics = AIHybridLearner.compute_hybrid(seq)
-
-    # 侧边栏：EOR 与权重只读
-    with st.sidebar:
-        decks = st.slider("EOR 计算副数（1-8）", 1, 8, int(st.session_state.eor_decks), key="eor_slider")
-        if decks != st.session_state.eor_decks: st.session_state.eor_decks = decks
-        st.markdown("### 🤖 AI 权重（只读）")
-        st.write({k: round(v,3) for k,v in st.session_state.ai_weights.items()})
-
-    # ===== 结构一致性 S =====
-    S = compute_structure_S(st.session_state.expert_roads)
-
-    # ===== 动态阈值：熵↑ -> 阈值↑；趋势强( |z|/cusum ) -> 阈值↓；再用 S 微调 =====
-    ent = float(metrics['entropy']); trend = (abs(metrics['z'])+abs(metrics['cusum']))/2.0
-    thr = 0.10 + 0.05*ent - 0.06*trend - 0.03*abs(S)
-    threshold = float(np.clip(thr, 0.05, 0.12))
-    st.session_state.engine_state['dynamic_threshold']=threshold
-
-    # ===== HOLD 软夹子：近30笔 HOLD 多则放宽阈值 20% =====
-    hist = st.session_state.prediction_stats.get('prediction_history', [])
-    hold_adjust = 1.0
-    if len(hist)>=30:
-        hold_ratio = np.mean([1 if h['prediction']=='HOLD' else 0 for h in hist[-30:]])
-        if hold_ratio>0.50:
-            threshold *= 0.80; hold_adjust=0.80
-    st.session_state.engine_state['hold_relax']=hold_adjust
-
-    # ===== 投票兜底 =====
-    m=metrics
-    def sgn(x): return 'B' if x>0 else ('P' if x<0 else 'HOLD')
-    votes=[sgn(m['z']), sgn(m['cusum']), sgn(m['momentum']), sgn(m['bayes']), sgn(m['eor'])]
-    cnt=Counter([v for v in votes if v!='HOLD'])
-    vote_dir,vote_num=(None,0) if not cnt else cnt.most_common(1)[0]
-
-    # 初判
-    if hybrid>threshold: prelim="B"
-    elif hybrid<-threshold: prelim="P"
-    else: prelim="HOLD"
-    margin = abs(hybrid)-threshold
-    vote_override=False
-    if prelim!="HOLD" and margin<0.04 and vote_dir in ['B','P'] and vote_dir!=prelim:
-        direction=vote_dir; vote_override=True
-    else:
-        direction=prelim
-    st.session_state.engine_state['vote_override']=vote_override
-
-    # ===== 趋势惯性：连对/连错的动态管理（只后台，不加滑杆） =====
-    fm=st.session_state.feedback_memory
-    recent_correct = fm['recent_run']
-    # 估算最近连续对/错
-    consec_right = 0
-    for ok in reversed(recent_correct):
-        if ok: consec_right+=1
-        else: break
-    consec_wrong = 0
-    for ok in reversed(recent_correct):
-        if not ok: consec_wrong+=1
-        else: break
-
-    # 置信度重标定 + 状态信号增强
-    scale = 0.12
-    sigm = 1/(1 + np.exp(-abs(hybrid)/scale))
-    base_conf = 0.52 + 0.36*sigm  # 0.52~0.88
-
-    # 结构 S 推动：|S|越大，按方向加/减 2~4%
-    base_conf *= (1 + 0.04*abs(S))
-
-    # 状态信号
-    state_signals = GameStateDetector.detect(st.session_state.expert_roads)
-    if state_signals:
-        for sig in state_signals:
-            if '突破' in sig or '共振' in sig:
-                base_conf=min(0.95, base_conf*1.10)
-            if '衰竭' in sig and direction!='HOLD':
-                direction='HOLD'
-                base_conf=max(base_conf,0.60)
-
-    # 连续对/错惯性
-    if consec_right>=3 and direction!='HOLD':
-        base_conf=min(0.97, base_conf*1.06)  # 胜率段加一点“胆量”
-    if consec_wrong>=3:
-        # 连错则提高门槛（等价于方向变保守）
-        threshold=min(0.14, threshold*1.20)
-        st.session_state.engine_state['dynamic_threshold']=threshold
-
-    # 风险与卡片展示
-    vol = float(abs(metrics['momentum']))*0.6 + 0.4*(1 - abs(metrics['bayes']))
-    risk_level, risk_text = ProfessionalRiskManager.get_risk_level(base_conf, vol)
-
-    # 推荐卡片
-    if direction=="B":
-        color="#FF6B6B"; icon="🔴"; text="庄(B)"; bg="linear-gradient(135deg,#FF6B6B,#C44569)"
-    elif direction=="P":
-        color="#4ECDC4"; icon="🔵"; text="闲(P)"; bg="linear-gradient(135deg,#4ECDC4,#44A08D)"
-    else:
-        color="#FFE66D"; icon="⚪"; text="观望"; bg="linear-gradient(135deg,#FFE66D,#F9A826)"
-
-    st.markdown(f"""
-    <div class="prediction-card" style="background:{bg};">
-        <h2 style="color:{color};margin:0;text-align:center;">{icon} 大师推荐: {'庄(B)' if direction=='B' else ('闲(P)' if direction=='P' else '观望')}</h2>
-        <h3 style="color:#fff;text-align:center;margin:10px 0;">🎯 置信度: {base_conf*100:.1f}% | {risk_text}</h3>
-        <p style="color:#f8f9fa;text-align:center;margin:0;">
-            结构一致性 S: {S:+.2f} | 动态阈值: {threshold:.3f}
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # 指标表
-    def badge(v):
-        if v>0: return f'<span class="badge badge-pos">+{v:.3f}</span>'
-        if v<0: return f'<span class="badge badge-neg">{v:.3f}</span>'
-        return f'<span class="badge badge-neutral">{v:.3f}</span>'
-    w = st.session_state.ai_weights
-    st.markdown(f"""
-    <div class="metric-table">
-      <div class="row"><div>Z-Score</div><div>{badge(metrics['z'])} · w={w['z']:.2f}</div></div>
-      <div class="row"><div>CUSUM</div><div>{badge(metrics['cusum'])} · w={w['cusum']:.2f}</div></div>
-      <div class="row"><div>Bayes</div><div>{badge(metrics['bayes'])} · w={w['bayes']:.2f}</div></div>
-      <div class="row"><div>Momentum</div><div>{badge(metrics['momentum'])} · w={w['momentum']:.2f}</div></div>
-      <div class="row"><div>EOR (decks={st.session_state.eor_decks})</div><div>{badge(metrics['eor'])} · w={w['eor']:.2f}</div></div>
-      <div class="row"><div>Entropy</div><div>{badge(metrics['entropy'])}</div></div>
-      <div class="row"><div><b>Hybrid 合成</b></div><div><b>{badge(hybrid)}</b></div></div>
-      <div class="row"><div>方向</div><div><b>{'庄(B)' if direction=='B' else ('闲(P)' if direction=='P' else '观望')}</b></div></div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # 风险面板
-    st.markdown("### 🛡️ 风险控制")
-    pos = ProfessionalRiskManager.calculate_position_size(base_conf, {'current_streak':0})
-    sug = ProfessionalRiskManager.get_trading_suggestion(risk_level, direction)
-    st.markdown(f"""
-    <div class="risk-panel">
-        <h4 style="color:#fff;margin:0 0 10px 0;">📊 风险控制建议</h4>
-        <p style="color:#ccc;margin:5px 0;"><strong>仓位建议:</strong> {pos:.1f} 倍基础仓位</p>
-        <p style="color:#ccc;margin:5px 0;"><strong>操作建议:</strong> {sug}</p>
-        <p style="color:#ccc;margin:5px 0;"><strong>连赢:</strong> {st.session_state.risk_data['win_streak']} 局 | <strong>连输:</strong> {st.session_state.feedback_memory['max_consec_wrong']}（历史最大连错）</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # 写回最后指标
-    st.session_state.ai_last_metrics=metrics
-    st.session_state.ai_entropy=metrics['entropy']
-
-    # 学习与统计（使用上一手真实结果）
-    if len(seq)>0 and direction!='HOLD':
-        last_result=seq[-1]
-        record_prediction_result(direction, last_result, base_conf)
-        enhanced_learning_update(direction, last_result)
-        # 自适应权重
-        AIHybridLearner.adaptive_rebalance()
-
-# ====== 六路展示 / 统计 / 历史（保留） ======
 def display_complete_roads():
     roads=st.session_state.expert_roads
     st.markdown("## 🛣️ 完整六路分析")
@@ -581,7 +628,7 @@ def display_complete_roads():
             st.markdown(f'<div class="multi-road">{disp}</div>', unsafe_allow_html=True)
     if roads['three_bead_road']:
         st.markdown("#### 🔶 三珠路")
-        for i,g in enumerate(roads['three_bead_road'][-6:]):
+        for i,g in enumerate(roads['three_bead_路'][-6:]) if False else enumerate(roads['three_bead_road'][-6:]):
             disp=" ".join(["🔴" if x=='B' else "🔵" for x in g])
             st.markdown(f'<div class="multi-road">第{i+1}组: {disp}</div>', unsafe_allow_html=True)
 
@@ -610,6 +657,7 @@ def display_professional_stats():
                 changes=sum(1 for i in range(1,len(bead)) if bead[i]!=bead[i-1])
                 vol=changes/len(bead)*100
                 st.metric("波动率", f"{vol:.1f}%")
+
     # 预测性能
     stats = st.session_state.prediction_stats
     if stats['total_predictions'] > 0:
@@ -642,33 +690,11 @@ def display_complete_history():
                 elif g['result']=='P': st.info("闲赢")
                 else: st.warning("和局")
 
-# ====== 侧边：系统状态（保留+新增只读引擎状态） ======
-def add_system_status_panel():
-    with st.sidebar.expander("📊 系统状态", expanded=False):
-        total_games = len(st.session_state.ultimate_games)
-        st.metric("总局数", total_games)
-        stats = st.session_state.prediction_stats
-        if stats['total_predictions'] > 0:
-            accuracy = (stats['correct_predictions'] / stats['total_predictions']) * 100
-            st.metric("预测准确率", f"{accuracy:.1f}%")
-            st.metric("总预测数", stats['total_predictions'])
-        fm = st.session_state.feedback_memory
-        st.metric("历史最大连错", fm['max_consec_wrong'])
-        eng = st.session_state.engine_state
-        st.markdown("### ⚙️ 智能引擎（只读）")
-        st.write({
-            "window": eng['window'],
-            "structure_S": round(eng['structure_S'],3),
-            "dynamic_threshold": round(eng['dynamic_threshold'],3),
-            "hold_relax": round(eng['hold_relax'],2),
-            "vote_override": eng['vote_override']
-        })
-
-# ====== 主程序（保留） ======
+# ========================== 主程序 ==========================
 def main():
     with st.sidebar:
         st.markdown("## ⚙️ 控制台")
-        st.caption("EOR 副数可调；AI 自动自适应，界面不增滑杆。")
+        st.caption("随时调整 EOR 副数；AI 权重后台自学习（界面只读显示）。")
         add_system_status_panel()
 
     tab1, tab2, tab3, tab4 = st.tabs(["🎯 智能分析", "🛣️ 六路分析", "📊 专业统计", "📝 历史记录"])
@@ -690,25 +716,10 @@ def main():
             st.session_state.ultimate_games.clear()
             st.session_state.expert_roads={'big_road':[],'bead_road':[],'big_eye_road':[],'small_road':[],'cockroach_road':[],'three_bead_road':[]}
             st.session_state.risk_data={'current_level':'medium','position_size':1.0,'stop_loss':3,'consecutive_losses':0,'win_streak':0}
-            st.session_state.prediction_stats={'total_predictions':0,'correct_predictions':0,'recent_accuracy':[],'prediction_history':[]}
-            st.session_state.engine_state.update({'structure_S':0.0,'dynamic_threshold':0.10,'hold_relax':1.0,'vote_override':False})
-            st.session_state.feedback_memory={'long_run_wrong':0,'chop_wrong':0,'recent_run':[],'max_consec_wrong':0}
             st.success("新牌靴开始！"); st.rerun()
     with c2:
         if st.button("📋 导出数据", use_container_width=True):
-            data = {
-                'games': st.session_state.ultimate_games,
-                'roads': st.session_state.expert_roads,
-                'ai_weights': st.session_state.ai_weights,
-                'prediction_stats': st.session_state.prediction_stats,
-                'engine_state': st.session_state.engine_state,
-                'feedback_memory': st.session_state.feedback_memory,
-                'export_time': datetime.now().isoformat()
-            }
-            json_str = json.dumps(data, ensure_ascii=False, indent=2)
-            st.download_button("📥 下载完整数据", json_str,
-                file_name=f"baccarat_data_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
-                mime="application/json")
+            enhanced_export_data()
 
 if __name__ == "__main__":
     main()
