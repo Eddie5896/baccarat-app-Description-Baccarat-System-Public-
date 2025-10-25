@@ -692,7 +692,7 @@ def card_button_interface():
     # 闲家扑克牌按钮 - 移动端优化
     st.markdown("**点击添加牌面:**")
     
-    # 使用CSS网格布局显示扑克牌按钮
+    # 使用CSS网格布局显示扑克牌按钮 - 修复A按钮的闭合标签
     player_html = '<div class="mobile-card-grid">'
     for card in cards:
         player_html += f'''
